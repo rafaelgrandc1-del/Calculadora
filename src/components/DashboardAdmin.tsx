@@ -191,7 +191,7 @@ export function DashboardAdmin({
     const map: Record<string, { date: string; vaturamento: number; lucro: number; comissao: number }> = {};
     
     orders.forEach((o) => {
-      const dateKey = o.date.substring(0, 10); // YYYY-MM-DD
+      const dateKey = String(o.date || '').substring(0, 10); // YYYY-MM-DD
       if (!map[dateKey]) {
         map[dateKey] = { date: dateKey, vaturamento: 0, lucro: 0, comissao: 0 };
       }
@@ -420,9 +420,9 @@ export function DashboardAdmin({
   const filteredSales = useMemo(() => {
     return orders.filter((o) => {
       const matchSearch = 
-        o.productName.toLowerCase().includes(salesSearch.toLowerCase()) ||
-        o.orderId.toLowerCase().includes(salesSearch.toLowerCase()) ||
-        o.sku.toLowerCase().includes(salesSearch.toLowerCase());
+        (o.productName || '').toLowerCase().includes((salesSearch || '').toLowerCase()) ||
+        (o.orderId || '').toLowerCase().includes((salesSearch || '').toLowerCase()) ||
+        (o.sku || '').toLowerCase().includes((salesSearch || '').toLowerCase());
       
       const matchSeller = salesSellerFilter === 'all' || o.sellerId === salesSellerFilter;
       

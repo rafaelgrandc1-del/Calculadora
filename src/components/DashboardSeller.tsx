@@ -77,7 +77,7 @@ export function DashboardSeller({
     
     // Fill last 10 days structure
     sellerOrders.forEach((o) => {
-      const dateKey = o.date.substring(0, 10);
+      const dateKey = String(o.date || '').substring(0, 10);
       if (!map[dateKey]) {
         map[dateKey] = { date: dateKey, vaturamento: 0, comissao: 0 };
       }

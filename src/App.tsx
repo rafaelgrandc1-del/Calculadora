@@ -21,13 +21,35 @@ export default function App() {
       // 1. Load active session
       const storedUser = localStorage.getItem('3d_mem_active_session');
       if (storedUser) {
-        setActiveUser(JSON.parse(storedUser));
+        try {
+          const parsed = JSON.parse(storedUser);
+          if (parsed && typeof parsed === 'object' && parsed.email) {
+            setActiveUser(parsed);
+          } else {
+            localStorage.removeItem('3d_mem_active_session');
+          }
+        } catch (_) {
+          localStorage.removeItem('3d_mem_active_session');
+        }
       }
 
       // 2. Load custom sellers (or fallback to defaults)
       const storedSellers = localStorage.getItem('3d_mem_sellers_db');
       if (storedSellers) {
-        setSellers(JSON.parse(storedSellers));
+        try {
+          const parsed = JSON.parse(storedSellers);
+          if (Array.isArray(parsed)) {
+            // Filter out invalid items
+            const cleaned = parsed.filter(s => s && typeof s === 'object' && s.id && s.name);
+            setSellers(cleaned);
+          } else {
+            throw new Error();
+          }
+        } catch (_) {
+          const fallbacks = getDefaultSellers();
+          setSellers(fallbacks);
+          localStorage.setItem('3d_mem_sellers_db', JSON.stringify(fallbacks));
+        }
       } else {
         const fallbacks = getDefaultSellers();
         setSellers(fallbacks);
@@ -37,7 +59,19 @@ export default function App() {
       // 3. Load product production costs (or fallback to defaults)
       const storedCosts = localStorage.getItem('3d_mem_costs_db');
       if (storedCosts) {
-        setProductCosts(JSON.parse(storedCosts));
+        try {
+          const parsed = JSON.parse(storedCosts);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter(c => c && typeof c === 'object' && c.id && c.nameOrSku);
+            setProductCosts(cleaned);
+          } else {
+            throw new Error();
+          }
+        } catch (_) {
+          const fallbackCosts = getDefault3DMemoriesCosts();
+          setProductCosts(fallbackCosts);
+          localStorage.setItem('3d_mem_costs_db', JSON.stringify(fallbackCosts));
+        }
       } else {
         const fallbackCosts = getDefault3DMemoriesCosts();
         setProductCosts(fallbackCosts);
@@ -47,7 +81,17 @@ export default function App() {
       // 4. Load parsed Shopee orders
       const storedOrders = localStorage.getItem('3d_mem_orders_db');
       if (storedOrders) {
-        setOrders(JSON.parse(storedOrders));
+        try {
+          const parsed = JSON.parse(storedOrders);
+          if (Array.isArray(parsed)) {
+            const cleaned = parsed.filter(o => o && typeof o === 'object' && o.orderId);
+            setOrders(cleaned);
+          } else {
+            localStorage.removeItem('3d_mem_orders_db');
+          }
+        } catch (_) {
+          localStorage.removeItem('3d_mem_orders_db');
+        }
       }
 
     } catch (e) {
