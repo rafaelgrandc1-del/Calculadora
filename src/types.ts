@@ -16,6 +16,8 @@ export interface ProductCost {
   id: string;
   nameOrSku: string; // SKU or Product Name match pattern
   productionCost: number; // Cost in BRL
+  shopeeCommissionRate?: number; // Custom Shopee Commission Rate (%) to override global rate (optional)
+  customSellerCommission?: number; // Custom Seller Commission (BRL per item) to override percentage (optional)
 }
 
 export interface ConcludedOrder {

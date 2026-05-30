@@ -118,12 +118,15 @@ export function calculateOrderMetrics(params: {
     date,
     seller,
     productCosts,
-    shopeeCommissionRate,
+    shopeeCommissionRate: globalShopeeRate,
   } = params;
 
   // Find cost in list
   // Best match algorithm: look for matching SKU first, then matching Product Name
   let foundCost = 0;
+  let customShopeeRate: number | undefined;
+  let customSellerComm: number | undefined;
+  
   const lowercaseSku = (sku || '').toLowerCase().trim();
   const lowercaseName = (productName || '').toLowerCase().trim();
   const lowercaseVar = (variation || '').toLowerCase().trim();
@@ -142,20 +145,48 @@ export function calculateOrderMetrics(params: {
 
   if (matchedCostItem) {
     foundCost = matchedCostItem.productionCost * quantity;
+    customShopeeRate = matchedCostItem.shopeeCommissionRate;
+    customSellerComm = matchedCostItem.customSellerCommission;
   } else {
     // Standard default cost: BRL 15.00 per item if not configured
     foundCost = 15.00 * quantity;
   }
 
-  // Calculate fields
-  const shopeeFee = revenue * (shopeeCommissionRate / 100);
-  
-  // Seller commission BRL
-  const sellerRate = seller ? seller.commissionRate : 0;
-  const sellerCommissionAmount = revenue * (sellerRate / 100);
+  // Effective Shopee rate (custom overrides global)
+  const effectiveShopeeRate = (customShopeeRate !== undefined && customShopeeRate !== null && customShopeeRate > 0)
+    ? customShopeeRate
+    : globalShopeeRate;
 
-  // Net Profit: Revenue - Shopee Fee - Product Cost - Seller Commission
-  const netProfit = revenue - shopeeFee - foundCost - sellerCommissionAmount;
+  // Calculate Shopee fee BRL
+  const shopeeFee = revenue * (effectiveShopeeRate / 100);
+  
+  // Available Margin (Unidade Faturável Líquida) = Revenue - Shopee Fee - Production Cost
+  const netAvailableMargin = revenue - shopeeFee - foundCost;
+  
+  // Seller commission BRL:
+  // In our logistics:
+  // - Seller gets 50% of the Available Margin (unless a custom per-item commission is defined)
+  // - Direct/unassigned sales have 0 seller commission.
+  const sellerRate = seller ? seller.commissionRate : 50.0; // Defaults to 50%
+  let sellerCommissionAmount = 0;
+
+  if (seller && seller.id !== 'unassigned') {
+    if (customSellerComm !== undefined && customSellerComm !== null && customSellerComm > 0) {
+      // Use custom BRL fixed seller commission per item
+      sellerCommissionAmount = customSellerComm * quantity;
+    } else {
+      // 50% (or seller rate) of the Net Available Margin
+      // Guard against negative margins so seller doesn't pay for losses unless they share it,
+      // but let's base it on positive net available margin.
+      sellerCommissionAmount = Math.max(0, netAvailableMargin) * (sellerRate / 100);
+    }
+  }
+
+  // Net Profit (Producer profit):
+  // The producer gets 50% of commission (remaining NAM) + the production cost.
+  // Since we represent Net Profit as Revenue - Shopee Fee - Found Cost - Seller Commission,
+  // Net Profit becomes NAM - Seller Commission, which is precisely equal to 50% of NAM!
+  const netProfit = netAvailableMargin - sellerCommissionAmount;
   const profitMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
 
   return {
@@ -171,7 +202,7 @@ export function calculateOrderMetrics(params: {
     calculatedCost: foundCost,
     sellerCommissionRate: sellerRate,
     sellerCommissionAmount,
-    shopeeCommissionRate,
+    shopeeCommissionRate: effectiveShopeeRate,
     shopeeFee,
     netProfit,
     profitMargin,
@@ -289,7 +320,7 @@ export function getDefaultSellers(): UserAccount[] {
       email: 'joao@parceiro.com',
       name: 'João Pedro Sales',
       role: UserRole.SELLER,
-      commissionRate: 12.0, // 12% commission
+      commissionRate: 50.0, // 50% commission
       createdAt: '2026-01-10T12:00:00Z',
     },
     {
@@ -297,7 +328,7 @@ export function getDefaultSellers(): UserAccount[] {
       email: 'maria@marketing.com',
       name: 'Maria Clara Souza',
       role: UserRole.SELLER,
-      commissionRate: 15.0, // 15% commission
+      commissionRate: 50.0, // 50% commission
       createdAt: '2026-02-15T14:30:00Z',
     },
     {
@@ -305,7 +336,7 @@ export function getDefaultSellers(): UserAccount[] {
       email: 'organico@3dmemories.com',
       name: 'Vendas Diretas Orgânicas',
       role: UserRole.SELLER,
-      commissionRate: 0.0, // 0% commission
+      commissionRate: 0.0, // 0% commission direct sale
       createdAt: '2026-01-01T00:00:00Z',
     },
   ];

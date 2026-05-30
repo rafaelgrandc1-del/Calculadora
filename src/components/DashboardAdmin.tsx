@@ -60,9 +60,9 @@ interface DashboardAdminProps {
   onDeleteSeller: (id: string) => void;
   onUpdateSellerCommission: (id: string, rate: number) => void;
   productCosts: ProductCost[];
-  onAddProductCost: (pattern: string, cost: number) => void;
+  onAddProductCost: (pattern: string, cost: number, shopeeCommissionRate?: number, customSellerCommission?: number) => void;
   onDeleteProductCost: (id: string) => void;
-  onUpdateProductCost: (id: string, cost: number) => void;
+  onUpdateProductCost: (id: string, cost: number, shopeeCommissionRate?: number, customSellerCommission?: number) => void;
   orders: ConcludedOrder[];
   onImportOrders: (newOrders: ConcludedOrder[]) => void;
   onClearOrders: () => void;
@@ -97,17 +97,21 @@ export function DashboardAdmin({
   // New Seller inline form state
   const [newSellerName, setNewSellerName] = useState('');
   const [newSellerEmail, setNewSellerEmail] = useState('');
-  const [newSellerComm, setNewSellerComm] = useState(10);
+  const [newSellerComm, setNewSellerComm] = useState(50);
 
   // New Cost inline form state
   const [newCostPattern, setNewCostPattern] = useState('');
   const [newCostPrice, setNewCostPrice] = useState('');
+  const [newCostShopeeRate, setNewCostShopeeRate] = useState('');
+  const [newCostSellerCommission, setNewCostSellerCommission] = useState('');
 
   // Editing states
   const [editingCostId, setEditingCostId] = useState<string | null>(null);
   const [editingCostVal, setEditingCostVal] = useState<string>('');
+  const [editingCostShopeeRate, setEditingCostShopeeRate] = useState<string>('');
+  const [editingCostSellerComm, setEditingCostSellerComm] = useState<string>('');
   const [editingSellerId, setEditingSellerId] = useState<string | null>(null);
-  const [editingSellerComm, setEditingSellerComm] = useState<number>(10);
+  const [editingSellerComm, setEditingSellerComm] = useState<number>(50);
 
   // Manual sale form state
   const [manualOrderId, setManualOrderId] = useState('');
@@ -386,23 +390,46 @@ export function DashboardAdmin({
     onAddSeller(newSellerName, newSellerEmail, Number(newSellerComm));
     setNewSellerName('');
     setNewSellerEmail('');
-    setNewSellerComm(10);
+    setNewSellerComm(50);
   };
 
   // Add product cost rule
   const handleCreateCostSubmission = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCostPattern.trim() || !newCostPrice.trim()) return;
-    onAddProductCost(newCostPattern, parseFloat(newCostPrice) || 0);
+    
+    const shopeeRateVal = newCostShopeeRate.trim() ? parseFloat(newCostShopeeRate) : undefined;
+    const sellerCommVal = newCostSellerCommission.trim() ? parseFloat(newCostSellerCommission) : undefined;
+
+    onAddProductCost(
+      newCostPattern, 
+      parseFloat(newCostPrice) || 0,
+      shopeeRateVal,
+      sellerCommVal
+    );
+    
     setNewCostPattern('');
     setNewCostPrice('');
+    setNewCostShopeeRate('');
+    setNewCostSellerCommission('');
   };
 
   const handleUpdateCost = (id: string) => {
     if (editingCostVal.trim()) {
-      onUpdateProductCost(id, parseFloat(editingCostVal) || 0);
+      const shopeeRateVal = editingCostShopeeRate.trim() ? parseFloat(editingCostShopeeRate) : undefined;
+      const sellerCommVal = editingCostSellerComm.trim() ? parseFloat(editingCostSellerComm) : undefined;
+
+      onUpdateProductCost(
+        id, 
+        parseFloat(editingCostVal) || 0,
+        shopeeRateVal,
+        sellerCommVal
+      );
+      
       setEditingCostId(null);
       setEditingCostVal('');
+      setEditingCostShopeeRate('');
+      setEditingCostSellerComm('');
     }
   };
 
@@ -1025,62 +1052,100 @@ export function DashboardAdmin({
           </div>
         )}
 
-        {/* Tab 3: MANAGE PRODUCT PRODUCTION COST RULE DATABASE */}
+         {/* Tab 3: MANAGE PRODUCT PRODUCTION COST RULE DATABASE */}
         {activeTab === 'costs' && (
           <div className="space-y-6" id="panel-costs">
             
             {/* Inline creation form */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5" id="add-cost-rule-box">
-              <h3 className="text-sm font-bold text-white mb-2">Adicionar Regra de Custo de Fabricação</h3>
+              <h3 className="text-sm font-bold text-white mb-2">Configurar Custo e Comissões de SKU</h3>
               <p className="text-slate-400 text-xs mb-4">
-                Cadastre as regras de custo de material para suas peças impressas 3D. O sistema aplicará este valor quando encontrar as palavras-chaves correspondentes no SKU ou Nome do item na planilha Shopee.
+                Cadastre as regras de custo e comissão de material para suas peças impressas 3D. O sistema aplicará estes valores quando encontrar correspondências no SKU ou Nome do item na planilha Shopee.
               </p>
 
-              <form onSubmit={handleCreateCostSubmission} className="flex flex-col sm:flex-row gap-3">
-                <div className="flex-1">
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
-                    Nome ou SKU para Correspondência
-                  </label>
-                  <input
-                    id="input-cost-sku"
-                    type="text"
-                    required
-                    placeholder="Ex: LUM-LITHO ou Batman 3D"
-                    value={newCostPattern}
-                    onChange={(e) => setNewCostPattern(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 text-xs text-white p-2 rounded-xl outline-none"
-                  />
-                  <p className="text-[9px] text-slate-500 mt-1">
-                    Será aplicado ao item que contiver esse termo.
-                  </p>
+              <form onSubmit={handleCreateCostSubmission} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
+                      SKU / Nome para Correspondência
+                    </label>
+                    <input
+                      id="input-cost-sku"
+                      type="text"
+                      required
+                      placeholder="Ex: LUM-LITHO ou Batman 3D"
+                      value={newCostPattern}
+                      onChange={(e) => setNewCostPattern(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 text-xs text-white p-2.5 rounded-xl outline-none"
+                    />
+                    <p className="text-[9px] text-slate-500 mt-1">
+                      Será aplicado ao item que contiver esse termo.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
+                      Custo de Produção (BRL)
+                    </label>
+                    <input
+                      id="input-cost-price"
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="R$ 0,00"
+                      value={newCostPrice}
+                      onChange={(e) => setNewCostPrice(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 text-xs text-white p-2.5 rounded-xl outline-none"
+                    />
+                    <p className="text-[9px] text-slate-500 mt-1">
+                      Ex: material + filamento + energia
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
+                      Taxa de Comissão Shopee (%) <span className="text-slate-500 italic lowercase">(opcional)</span>
+                    </label>
+                    <input
+                      id="input-custom-shopee-rate"
+                      type="number"
+                      step="0.1"
+                      placeholder="Padrão: 20%"
+                      value={newCostShopeeRate}
+                      onChange={(e) => setNewCostShopeeRate(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 text-xs text-white p-2.5 rounded-xl outline-none"
+                    />
+                    <p className="text-[9px] text-slate-500 mt-1">
+                      Deixe vazio para usar a Taxa Shopee Geral ({shopeeFeeRate}%).
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
+                      Comissão do Vendedor Fixo (BRL) <span className="text-slate-500 italic lowercase">(opcional)</span>
+                    </label>
+                    <input
+                      id="input-custom-seller-comm"
+                      type="number"
+                      step="0.01"
+                      placeholder="Padrão: 50% Líquido"
+                      value={newCostSellerCommission}
+                      onChange={(e) => setNewCostSellerCommission(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 text-xs text-white p-2.5 rounded-xl outline-none"
+                    />
+                    <p className="text-[9px] text-slate-500 mt-1">
+                      Deixe vazio para usar a Logística Padrão (50/50).
+                    </p>
+                  </div>
                 </div>
 
-                <div className="w-full sm:w-48">
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
-                    Custo de Produção (BRL)
-                  </label>
-                  <input
-                    id="input-cost-price"
-                    type="number"
-                    step="0.01"
-                    required
-                    placeholder="R$ 0,00"
-                    value={newCostPrice}
-                    onChange={(e) => setNewCostPrice(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 text-xs text-white p-2 rounded-xl outline-none"
-                  />
-                  <p className="text-[9px] text-slate-500 mt-1">
-                    Ex: material + filamento + energia
-                  </p>
-                </div>
-
-                <div className="flex items-end">
+                <div className="flex justify-end pt-2">
                   <button
                     id="btn-add-cost-record"
                     type="submit"
-                    className="w-full sm:w-auto bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs py-2 px-4 rounded-xl flex items-center justify-center gap-1 transition-all h-9"
+                    className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs py-2.5 px-5 rounded-xl flex items-center gap-1.5 transition-all shadow-md shadow-cyan-950/20"
                   >
-                    <Plus className="w-4 h-4" /> Cadastrar Custo
+                    <Plus className="w-4 h-4" /> Cadastrar Custo e Comissão de SKU
                   </button>
                 </div>
               </form>
@@ -1090,8 +1155,8 @@ export function DashboardAdmin({
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5" id="costs-catalog-box">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h3 className="text-sm font-bold text-white">Catálogo de Custos de Produção</h3>
-                  <p className="text-slate-400 text-xs mt-0.5">Estes são os valores que servem de base para calcular sua margem líquida</p>
+                  <h3 className="text-sm font-bold text-white">Catálogo de Custos e Regulamentações por Código</h3>
+                  <p className="text-slate-400 text-xs mt-0.5">Define custo de matéria-prima, comissão Shopee seletiva e taxas de vendas</p>
                 </div>
                 <span className="text-xs bg-slate-950 text-slate-400 font-bold py-1 px-3 border border-slate-800 rounded-lg">
                   {productCosts.length} SKU(s) cadastrados
@@ -1102,9 +1167,11 @@ export function DashboardAdmin({
                 <table className="w-full text-left border-collapse" id="costs-table">
                   <thead>
                     <tr className="border-b border-slate-800 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                      <th className="pb-3 pl-2">SKU / Nome Padrão do Produto</th>
-                      <th className="pb-3 text-right">Custo Estimado de Produção</th>
-                      <th className="pb-3 text-right pr-2">Ações do Editor</th>
+                      <th className="pb-3 pl-2">SKU / Correspondência</th>
+                      <th className="pb-3 text-right">Custo de Produção</th>
+                      <th className="pb-3 text-right">Taxa Shopee (%)</th>
+                      <th className="pb-3 text-right">Comissão Vendedor (R$ Fixo)</th>
+                      <th className="pb-3 text-right pr-2">Ações</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1123,11 +1190,47 @@ export function DashboardAdmin({
                                 step="0.01"
                                 value={editingCostVal}
                                 onChange={(e) => setEditingCostVal(e.target.value)}
-                                className="w-20 bg-slate-950 border border-slate-700 text-xs text-white p-1 rounded-md text-right outline-none"
+                                className="w-20 bg-slate-950 border border-slate-750 text-xs text-white p-1 rounded-md text-right outline-none focus:border-cyan-500"
                               />
                             </div>
                           ) : (
                             formatBRL(c.productionCost)
+                          )}
+                        </td>
+                        <td className="py-3.5 text-right font-semibold text-slate-300">
+                          {editingCostId === c.id ? (
+                            <div className="flex justify-end gap-1 items-center">
+                              <input
+                                id={`edit-shopee-rate-${c.id}`}
+                                type="number"
+                                step="0.1"
+                                placeholder={`Geral: ${shopeeFeeRate}%`}
+                                value={editingCostShopeeRate}
+                                onChange={(e) => setEditingCostShopeeRate(e.target.value)}
+                                className="w-20 bg-slate-950 border border-slate-750 text-xs text-white p-1 rounded-md text-right outline-none focus:border-cyan-500"
+                              />
+                              <span className="text-slate-500 text-[11px]">%</span>
+                            </div>
+                          ) : (
+                            c.shopeeCommissionRate ? `${c.shopeeCommissionRate}%` : <span className="text-slate-500 italic">Padrão ({shopeeFeeRate}%)</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 text-right font-medium text-emerald-400">
+                          {editingCostId === c.id ? (
+                            <div className="flex justify-end gap-1 items-center">
+                              <span className="text-slate-500 text-[11px]">R$</span>
+                              <input
+                                id={`edit-seller-comm-${c.id}`}
+                                type="number"
+                                step="0.01"
+                                placeholder="Padrão: 50%"
+                                value={editingCostSellerComm}
+                                onChange={(e) => setEditingCostSellerComm(e.target.value)}
+                                className="w-24 bg-slate-950 border border-slate-750 text-xs text-white p-1 rounded-md text-right outline-none focus:border-cyan-500"
+                              />
+                            </div>
+                          ) : (
+                            c.customSellerCommission ? formatBRL(c.customSellerCommission) : <span className="text-slate-500 italic">Geral (50/50)</span>
                           )}
                         </td>
                         <td className="py-3.5 text-right pr-2">
@@ -1153,7 +1256,12 @@ export function DashboardAdmin({
                               <>
                                 <button
                                   id={`edit-btn-${c.id}`}
-                                  onClick={() => { setEditingCostId(c.id); setEditingCostVal(String(c.productionCost)); }}
+                                  onClick={() => { 
+                                    setEditingCostId(c.id); 
+                                    setEditingCostVal(String(c.productionCost));
+                                    setEditingCostShopeeRate(c.shopeeCommissionRate !== undefined ? String(c.shopeeCommissionRate) : '');
+                                    setEditingCostSellerComm(c.customSellerCommission !== undefined ? String(c.customSellerCommission) : '');
+                                  }}
                                   className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-cyan-400 transition-colors"
                                   title="Editar custo"
                                 >
@@ -1175,7 +1283,7 @@ export function DashboardAdmin({
                     ))}
                     {productCosts.length === 0 && (
                       <tr>
-                        <td colSpan={3} className="py-8 text-center text-slate-500 italic">
+                        <td colSpan={5} className="py-8 text-center text-slate-500 italic">
                           Nenhum custo cadastrado no catálogo. Adicione regras acima ou use os dados demo.
                         </td>
                       </tr>
@@ -1233,14 +1341,14 @@ export function DashboardAdmin({
                 <div>
                   <div className="flex justify-between text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">
                     <span>Taxa Comissão</span>
-                    <span className="text-cyan-400">{newSellerComm}%</span>
+                    <span className="text-cyan-400 font-semibold">{newSellerComm}%</span>
                   </div>
                   <input
                     id="range-seller-comm"
                     type="range"
                     min="1"
-                    max="30"
-                    step="0.5"
+                    max="100"
+                    step="1"
                     value={newSellerComm}
                     onChange={(e) => setNewSellerComm(Number(e.target.value))}
                     className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
@@ -1312,8 +1420,8 @@ export function DashboardAdmin({
                               id={`edit-seller-comm-${s.id}`}
                               type="number"
                               min="0"
-                              max="30"
-                              step="0.5"
+                              max="100"
+                              step="1"
                               value={editingSellerComm}
                               onChange={(e) => setEditingSellerComm(Number(e.target.value))}
                               className="w-14 bg-slate-900 border border-slate-700 text-[10px] text-white p-1 rounded-md text-center outline-none"

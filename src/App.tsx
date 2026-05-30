@@ -178,11 +178,18 @@ export default function App() {
   };
 
   // Handle custom catalog products costs database
-  const handleAddProductCost = (pattern: string, cost: number) => {
+  const handleAddProductCost = (
+    pattern: string, 
+    cost: number, 
+    shopeeCommissionRate?: number, 
+    customSellerCommission?: number
+  ) => {
     const newCost: ProductCost = {
       id: `cost_${Date.now()}`,
       nameOrSku: pattern.trim(),
-      productionCost: cost
+      productionCost: cost,
+      shopeeCommissionRate,
+      customSellerCommission
     };
     const updated = [...productCosts, newCost];
     setProductCosts(updated);
@@ -191,12 +198,22 @@ export default function App() {
 
   const handleDeleteProductCost = (id: string) => {
     const updated = productCosts.filter(c => c.id !== id);
+    setSellers(prev => [...prev]); // trigger side effect to ensure update
     setProductCosts(updated);
     localStorage.setItem('3d_mem_costs_db', JSON.stringify(updated));
   };
 
-  const handleUpdateProductCost = (id: string, cost: number) => {
-    const updated = productCosts.map(c => c.id === id ? { ...c, productionCost: cost } : c);
+  const handleUpdateProductCost = (
+    id: string, 
+    cost: number, 
+    shopeeCommissionRate?: number, 
+    customSellerCommission?: number
+  ) => {
+    const updated = productCosts.map(c => 
+      c.id === id 
+        ? { ...c, productionCost: cost, shopeeCommissionRate, customSellerCommission } 
+        : c
+    );
     setProductCosts(updated);
     localStorage.setItem('3d_mem_costs_db', JSON.stringify(updated));
   };

@@ -18,7 +18,7 @@ export function LoginScreen({ onLoginSuccess, sellers, onRegisterSeller }: Login
   // Registration form state
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
-  const [newComm, setNewComm] = useState(10); // Default 10%
+  const [newComm, setNewComm] = useState(50); // Default 50% according to store policy
 
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -76,7 +76,7 @@ export function LoginScreen({ onLoginSuccess, sellers, onRegisterSeller }: Login
     // Clear registration fields
     setNewName('');
     setNewEmail('');
-    setNewComm(10);
+    setNewComm(50);
   };
 
   // Quick testing accounts trigger
@@ -251,23 +251,23 @@ export function LoginScreen({ onLoginSuccess, sellers, onRegisterSeller }: Login
 
                 <div>
                   <label className="block text-slate-300 text-xs font-semibold uppercase tracking-wider mb-1.5 flex justify-between">
-                    <span>% de Comissão Solicitada</span>
+                    <span>% de Comissão de Venda</span>
                     <span className="text-cyan-400 font-bold">{newComm}%</span>
                   </label>
                   <input
                     id="register-input-comm"
                     type="range"
                     min="1"
-                    max="30"
-                    step="0.5"
+                    max="100"
+                    step="1"
                     value={newComm}
                     onChange={(e) => setNewComm(Number(e.target.value))}
                     className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400 focus:outline-none"
                   />
                   <div className="flex justify-between text-[10px] text-slate-500 mt-1">
                     <span>1%</span>
-                    <span>15%</span>
-                    <span>30%</span>
+                    <span className="text-cyan-400 font-semibold font-mono">50% (Padrão)</span>
+                    <span>100%</span>
                   </div>
                 </div>
 
