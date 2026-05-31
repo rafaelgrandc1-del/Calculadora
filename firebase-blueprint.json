@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Seller or admin accounts in the system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["ADMIN", "SELLER"] },
+        "commissionRate": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "password": { "type": "string" }
+      },
+      "required": ["id", "email", "name", "role", "commissionRate", "createdAt", "password"]
+    },
+    "ProductCost": {
+      "title": "ProductCost",
+      "description": "Unit cost mapping patterns mapped by SKU or Product Name",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nameOrSku": { "type": "string" },
+        "productionCost": { "type": "number" },
+        "shopeeCommissionRate": { "type": "number" },
+        "customSellerCommission": { "type": "number" }
+      },
+      "required": ["id", "nameOrSku", "productionCost"]
+    },
+    "ConcludedOrder": {
+      "title": "ConcludedOrder",
+      "description": "Order records extracted from Shopee sales reports",
+      "type": "object",
+      "properties": {
+        "orderId": { "type": "string" },
+        "productName": { "type": "string" },
+        "variation": { "type": "string" },
+        "sku": { "type": "string" },
+        "quantity": { "type": "number" },
+        "revenue": { "type": "number" },
+        "date": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "sellerName": { "type": "string" },
+        "calculatedCost": { "type": "number" },
+        "sellerCommissionRate": { "type": "number" },
+        "sellerCommissionAmount": { "type": "number" },
+        "shopeeCommissionRate": { "type": "number" },
+        "shopeeFee": { "type": "number" },
+        "netProfit": { "type": "number" },
+        "profitMargin": { "type": "number" }
+      },
+      "required": [
+        "orderId",
+        "productName",
+        "variation",
+        "sku",
+        "quantity",
+        "revenue",
+        "date",
+        "sellerId",
+        "sellerName",
+        "calculatedCost",
+        "sellerCommissionRate",
+        "sellerCommissionAmount",
+        "shopeeCommissionRate",
+        "shopeeFee",
+        "netProfit",
+        "profitMargin"
+      ]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "UserAccount",
+      "description": "System accounts"
+    },
+    "productCosts/{costId}": {
+      "schema": "ProductCost",
+      "description": "Unit cost settings for 3D printed items"
+    },
+    "orders/{orderId}": {
+      "schema": "ConcludedOrder",
+      "description": "List of imported and parsed sales"
+    }
+  }
+}

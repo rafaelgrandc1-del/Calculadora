@@ -5,7 +5,7 @@ import { ShieldCheck, User, Sparkles, UserPlus, Key, Info } from 'lucide-react';
 interface LoginScreenProps {
   onLoginSuccess: (user: UserAccount) => void;
   sellers: UserAccount[];
-  onRegisterSeller: (name: string, email: string, commRate: number) => UserAccount;
+  onRegisterSeller: (name: string, email: string, commRate: number, password?: string) => UserAccount;
 }
 
 export function LoginScreen({ onLoginSuccess, sellers, onRegisterSeller }: LoginScreenProps) {
@@ -13,12 +13,13 @@ export function LoginScreen({ onLoginSuccess, sellers, onRegisterSeller }: Login
   
   // Login form state
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState(''); // Simulated password
+  const [password, setPassword] = useState(''); // Real password
   
   // Registration form state
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newComm, setNewComm] = useState(50); // Default 50% according to store policy
+  const [newPassword, setNewPassword] = useState(''); // Set custom password
 
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -29,12 +30,16 @@ export function LoginScreen({ onLoginSuccess, sellers, onRegisterSeller }: Login
 
     const cleanEmail = email.toLowerCase().trim();
 
-    // Check Admin default credentials
-    if (cleanEmail === 'admin@3dmemories.com') {
+    // Check Admin / Produtor credentials
+    if (cleanEmail === 'rafaelgrandc1@gmail.com') {
+      if (password !== 'rafael123') {
+        setErrorMsg('Senha incorreta para a conta de Produtor (Admin).');
+        return;
+      }
       const adminUser: UserAccount = {
-        id: 'admin',
-        email: 'admin@3dmemories.com',
-        name: '3D Memories (Admin)',
+        id: 'admin_rafael',
+        email: 'rafaelgrandc1@gmail.com',
+        name: 'Rafael (Produtor)',
         role: UserRole.ADMIN,
         commissionRate: 0,
         createdAt: new Date().toISOString(),
@@ -46,9 +51,14 @@ export function LoginScreen({ onLoginSuccess, sellers, onRegisterSeller }: Login
     // Check Seller list
     const foundSeller = sellers.find(s => s.email.toLowerCase().trim() === cleanEmail);
     if (foundSeller) {
+      const expectedPassword = foundSeller.password || '123456'; // fallback for old/demo profiles
+      if (password !== expectedPassword) {
+        setErrorMsg('Senha incorreta para esta conta de Vendedor. Por favor, tente novamente.');
+        return;
+      }
       onLoginSuccess(foundSeller);
     } else {
-      setErrorMsg('E-mail não encontrado. Digite um e-mail válido ou use os atalhos abaixo.');
+      setErrorMsg('E-mail não cadastrado. Por favor, crie um novo cadastro ou verifique o e-mail digitado.');
     }
   };
 
@@ -57,42 +67,33 @@ export function LoginScreen({ onLoginSuccess, sellers, onRegisterSeller }: Login
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (!newName.trim() || !newEmail.trim()) {
-      setErrorMsg('Por favor, preencha todos os campos obrigatórios.');
+    if (!newName.trim() || !newEmail.trim() || !newPassword.trim()) {
+      setErrorMsg('Por favor, preencha todos os campos obrigatórios, incluindo a senha.');
+      return;
+    }
+
+    if (newPassword.length < 4) {
+      setErrorMsg('A senha precisa ter pelo menos 4 caracteres.');
       return;
     }
 
     const cleanEmail = newEmail.toLowerCase().trim();
-    if (cleanEmail === 'admin@3dmemories.com' || sellers.some(s => s.email.toLowerCase().trim() === cleanEmail)) {
+    if (cleanEmail === 'rafaelgrandc1@gmail.com' || sellers.some(s => s.email.toLowerCase().trim() === cleanEmail)) {
       setErrorMsg('Este e-mail já está sendo utilizado no sistema.');
       return;
     }
 
-    const newSeller = onRegisterSeller(newName, newEmail, Number(newComm));
-    setSuccessMsg(`Cadastro realizado com sucesso! Você já pode entrar com o e-mail: ${cleanEmail}`);
+    const newSeller = onRegisterSeller(newName, cleanEmail, Number(newComm), newPassword);
+    setSuccessMsg(`Cadastro realizado com sucesso! Use sua senha configurada para entrar com o e-mail: ${cleanEmail}`);
     setEmail(cleanEmail);
+    setPassword(newPassword); // fill password on success
     setIsRegistering(false);
     
     // Clear registration fields
     setNewName('');
     setNewEmail('');
+    setNewPassword('');
     setNewComm(50);
-  };
-
-  // Quick testing accounts trigger
-  const handleQuickLogin = (role: UserRole, sellerAccount?: UserAccount) => {
-    if (role === UserRole.ADMIN) {
-      onLoginSuccess({
-        id: 'admin',
-        email: 'admin@3dmemories.com',
-        name: '3D Memories (Admin)',
-        role: UserRole.ADMIN,
-        commissionRate: 0,
-        createdAt: new Date().toISOString(),
-      });
-    } else if (sellerAccount) {
-      onLoginSuccess(sellerAccount);
-    }
   };
 
   return (
@@ -187,9 +188,8 @@ export function LoginScreen({ onLoginSuccess, sellers, onRegisterSeller }: Login
                 </div>
 
                 <div>
-                  <label className="block text-slate-300 text-xs font-semibold uppercase tracking-wider mb-1.5 flex justify-between">
-                    <span>Senha</span>
-                    <span className="text-slate-500 normal-case font-normal">(Qualquer senha p/ teste)</span>
+                  <label className="block text-slate-300 text-xs font-semibold uppercase tracking-wider mb-1.5">
+                    Senha de Acesso
                   </label>
                   <div className="relative">
                     <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500">
@@ -198,7 +198,8 @@ export function LoginScreen({ onLoginSuccess, sellers, onRegisterSeller }: Login
                     <input
                       id="login-input-password"
                       type="password"
-                      placeholder="••••••••"
+                      required
+                      placeholder="Digite sua senha"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 text-white rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none transition-all placeholder:text-slate-600"
@@ -251,6 +252,27 @@ export function LoginScreen({ onLoginSuccess, sellers, onRegisterSeller }: Login
 
                 <div>
                   <label className="block text-slate-300 text-xs font-semibold uppercase tracking-wider mb-1.5 flex justify-between">
+                    <span>Criar uma Senha</span>
+                    <span className="text-[10px] text-slate-500 normal-case font-normal">(Mín. 4 caract.)</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500">
+                      <Key className="w-4 h-4 shrink-0" />
+                    </span>
+                    <input
+                      id="register-input-password"
+                      type="password"
+                      required
+                      placeholder="Crie sua senha de vendedor"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 text-white rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none transition-all placeholder:text-slate-600"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 text-xs font-semibold uppercase tracking-wider mb-1.5 flex justify-between">
                     <span>% de Comissão de Venda</span>
                     <span className="text-cyan-400 font-bold">{newComm}%</span>
                   </label>
@@ -282,60 +304,9 @@ export function LoginScreen({ onLoginSuccess, sellers, onRegisterSeller }: Login
             </form>
           )}
 
-          {/* Quick-Access Credentials Section */}
-          <div className="mt-8 border-t border-slate-800/80 pt-5" id="quick-login-section">
-            <h3 className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3 text-center">
-              Acesso Rápido para Teste
-            </h3>
-            
-            <div className="grid grid-cols-1 gap-2.5">
-              {/* Producer Access Button */}
-              <button
-                id="quick-admin-login"
-                type="button"
-                onClick={() => handleQuickLogin(UserRole.ADMIN)}
-                className="flex items-center gap-3 bg-slate-950 hover:bg-slate-800 border border-cyan-950/55 hover:border-cyan-800/50 rounded-xl p-3 text-left transition-all"
-              >
-                <div className="p-2.5 bg-cyan-950 rounded-lg text-cyan-400">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <div>
-                  <span className="block text-xs font-semibold text-slate-200">
-                    Entrar como Produtor (3D Memories)
-                  Admin principal
-                  </span>
-                  <span className="block text-[10px] text-cyan-400 font-mono">admin@3dmemories.com</span>
-                </div>
-              </button>
-
-              {/* Sellers Access Section */}
-              <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/50">
-                <span className="block text-[10px] text-slate-500 font-semibold mb-1.5 ml-1 text-center">
-                  VENDEDORES PARCEIROS REGISTRADOS:
-                </span>
-                <div className="max-h-28 overflow-y-auto space-y-1.5 pr-1">
-                  {sellers.map((s) => (
-                    <button
-                      id={`quick-seller-${s.id}`}
-                      key={s.id}
-                      type="button"
-                      onClick={() => handleQuickLogin(UserRole.SELLER, s)}
-                      className="w-full flex items-center justify-between bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs py-2 px-3 rounded-lg border border-slate-800 hover:border-slate-700 transition-colors"
-                    >
-                      <span className="font-semibold">{s.name}</span>
-                      <span className="text-cyan-400 text-[10px] font-mono font-bold">
-                        {s.commissionRate}% Com.
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
           <div className="text-center mt-5">
             <p className="text-[10px] text-slate-600 flex items-center justify-center gap-1">
-              <span>Sua base de dados local é persistida no seu navegador.</span>
+              <span>Sua base de dados segura está integrada ao Firestore.</span>
             </p>
           </div>
         </div>

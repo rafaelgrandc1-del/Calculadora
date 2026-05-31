@@ -10,6 +10,7 @@ export interface UserAccount {
   role: UserRole;
   commissionRate: number; // Default commission % for this seller
   createdAt: string;
+  password?: string; // Real password set by user
 }
 
 export interface ProductCost {

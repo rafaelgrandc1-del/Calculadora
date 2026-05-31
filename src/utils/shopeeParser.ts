@@ -314,30 +314,5 @@ export function getDefault3DMemoriesCosts(): ProductCost[] {
  * Returns default system sellers setup for demo purposes
  */
 export function getDefaultSellers(): UserAccount[] {
-  return [
-    {
-      id: 'sell_joao',
-      email: 'joao@parceiro.com',
-      name: 'João Pedro Sales',
-      role: UserRole.SELLER,
-      commissionRate: 50.0, // 50% commission
-      createdAt: '2026-01-10T12:00:00Z',
-    },
-    {
-      id: 'sell_maria',
-      email: 'maria@marketing.com',
-      name: 'Maria Clara Souza',
-      role: UserRole.SELLER,
-      commissionRate: 50.0, // 50% commission
-      createdAt: '2026-02-15T14:30:00Z',
-    },
-    {
-      id: 'sell_3dmem',
-      email: 'organico@3dmemories.com',
-      name: 'Vendas Diretas Orgânicas',
-      role: UserRole.SELLER,
-      commissionRate: 0.0, // 0% commission direct sale
-      createdAt: '2026-01-01T00:00:00Z',
-    },
-  ];
+  return [];
 }

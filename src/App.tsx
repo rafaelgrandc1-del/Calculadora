@@ -5,6 +5,20 @@ import { DashboardAdmin } from './components/DashboardAdmin';
 import { DashboardSeller } from './components/DashboardSeller';
 import { getDefault3DMemoriesCosts, getDefaultSellers } from './utils/shopeeParser';
 import { Sparkles } from 'lucide-react';
+import {
+  fetchUsersFromFirestore,
+  saveUserToFirestore,
+  deleteUserFromFirestore,
+  fetchProductCostsFromFirestore,
+  saveProductCostToFirestore,
+  deleteProductCostFromFirestore,
+  fetchOrdersFromFirestore,
+  saveOrderToFirestore,
+  saveOrdersBulkToFirestore,
+  deleteOrderFromFirestore,
+  clearAllOrdersFromFirestore,
+  testFirestoreConnection
+} from './firebaseService';
 
 export default function App() {
   // --- Persistent Local Database State Engine ---
@@ -15,90 +29,101 @@ export default function App() {
   const [orders, setOrders] = useState<ConcludedOrder[]>([]);
   const [dbLoaded, setDbLoaded] = useState(false);
 
-  // Initialize Database from LocalStorage or default templates
+  // Initialize Database from Firestore with fallbacks to LocalStorage & defaults
   useEffect(() => {
-    try {
-      // 1. Load active session
-      const storedUser = localStorage.getItem('3d_mem_active_session');
-      if (storedUser) {
-        try {
-          const parsed = JSON.parse(storedUser);
-          if (parsed && typeof parsed === 'object' && parsed.email) {
-            setActiveUser(parsed);
-          } else {
+    async function initDatabase() {
+      try {
+        // 1. Load active session
+        const storedUser = localStorage.getItem('3d_mem_active_session');
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser);
+            if (parsed && typeof parsed === 'object' && parsed.email) {
+              setActiveUser(parsed);
+            } else {
+              localStorage.removeItem('3d_mem_active_session');
+            }
+          } catch (_) {
             localStorage.removeItem('3d_mem_active_session');
           }
-        } catch (_) {
-          localStorage.removeItem('3d_mem_active_session');
         }
-      }
 
-      // 2. Load custom sellers (or fallback to defaults)
-      const storedSellers = localStorage.getItem('3d_mem_sellers_db');
-      if (storedSellers) {
-        try {
-          const parsed = JSON.parse(storedSellers);
-          if (Array.isArray(parsed)) {
-            // Filter out invalid items
-            const cleaned = parsed.filter(s => s && typeof s === 'object' && s.id && s.name);
-            setSellers(cleaned);
-          } else {
-            throw new Error();
-          }
-        } catch (_) {
-          const fallbacks = getDefaultSellers();
-          setSellers(fallbacks);
-          localStorage.setItem('3d_mem_sellers_db', JSON.stringify(fallbacks));
+        // Test Connection
+        await testFirestoreConnection();
+
+        // 2. Load custom sellers from Firestore
+        let dbSellers = await fetchUsersFromFirestore();
+        
+        // Ensure existence of the helper producer account rafaelgrandc1@gmail.com as ADMIN
+        const producerEmail = 'rafaelgrandc1@gmail.com';
+        const hasProducer = dbSellers.some(u => u.email.toLowerCase().trim() === producerEmail);
+        
+        if (!hasProducer) {
+          const producerUser: UserAccount = {
+            id: 'admin_rafael',
+            email: producerEmail,
+            name: 'Rafael (Produtor)',
+            role: UserRole.ADMIN,
+            commissionRate: 0,
+            createdAt: new Date().toISOString(),
+            password: 'rafael123' // Default secure password for Rafael
+          };
+          await saveUserToFirestore(producerUser);
+          dbSellers.push(producerUser);
         }
-      } else {
-        const fallbacks = getDefaultSellers();
-        setSellers(fallbacks);
-        localStorage.setItem('3d_mem_sellers_db', JSON.stringify(fallbacks));
-      }
 
-      // 3. Load product production costs (or fallback to defaults)
-      const storedCosts = localStorage.getItem('3d_mem_costs_db');
-      if (storedCosts) {
-        try {
-          const parsed = JSON.parse(storedCosts);
-          if (Array.isArray(parsed)) {
-            const cleaned = parsed.filter(c => c && typeof c === 'object' && c.id && c.nameOrSku);
-            setProductCosts(cleaned);
-          } else {
-            throw new Error();
+        setSellers(dbSellers);
+        localStorage.setItem('3d_mem_sellers_db', JSON.stringify(dbSellers));
+
+        // 3. Load product production costs from Firestore
+        const dbCosts = await fetchProductCostsFromFirestore();
+        if (dbCosts.length > 0) {
+          setProductCosts(dbCosts);
+        } else {
+          const localCostsStr = localStorage.getItem('3d_mem_costs_db');
+          let fallbackCosts = getDefault3DMemoriesCosts();
+          if (localCostsStr) {
+            try {
+              const parsed = JSON.parse(localCostsStr);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                fallbackCosts = parsed;
+              }
+            } catch (_) {}
           }
-        } catch (_) {
-          const fallbackCosts = getDefault3DMemoriesCosts();
           setProductCosts(fallbackCosts);
           localStorage.setItem('3d_mem_costs_db', JSON.stringify(fallbackCosts));
-        }
-      } else {
-        const fallbackCosts = getDefault3DMemoriesCosts();
-        setProductCosts(fallbackCosts);
-        localStorage.setItem('3d_mem_costs_db', JSON.stringify(fallbackCosts));
-      }
-
-      // 4. Load parsed Shopee orders
-      const storedOrders = localStorage.getItem('3d_mem_orders_db');
-      if (storedOrders) {
-        try {
-          const parsed = JSON.parse(storedOrders);
-          if (Array.isArray(parsed)) {
-            const cleaned = parsed.filter(o => o && typeof o === 'object' && o.orderId);
-            setOrders(cleaned);
-          } else {
-            localStorage.removeItem('3d_mem_orders_db');
+          // Seed to Firestore asynchronously
+          for (const c of fallbackCosts) {
+            await saveProductCostToFirestore(c);
           }
-        } catch (_) {
-          localStorage.removeItem('3d_mem_orders_db');
         }
-      }
 
-    } catch (e) {
-      console.error('Falha ao restaurar banco local:', e);
-    } finally {
-      setDbLoaded(true);
+        // 4. Load parsed Shopee orders from Firestore
+        const dbOrders = await fetchOrdersFromFirestore();
+        if (dbOrders.length > 0) {
+          setOrders(dbOrders);
+        } else {
+          const localOrdersStr = localStorage.getItem('3d_mem_orders_db');
+          if (localOrdersStr) {
+            try {
+              const parsed = JSON.parse(localOrdersStr);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setOrders(parsed);
+                // Seed existing orders to firestore
+                await saveOrdersBulkToFirestore(parsed);
+              }
+            } catch (_) {}
+          }
+        }
+
+      } catch (err) {
+        console.error('Falha ao sincronizar com banco Firestore:', err);
+      } finally {
+        setDbLoaded(true);
+      }
     }
+
+    initDatabase();
   }, []);
 
   // --- Handlers for Database State Synchronization ---
@@ -116,19 +141,22 @@ export default function App() {
   };
 
   // Handle seller registration & persistence
-  const handleAddSeller = (name: string, email: string, commRate: number): UserAccount => {
+  const handleAddSeller = (name: string, email: string, commRate: number, password?: string): UserAccount => {
     const newSeller: UserAccount = {
       id: `sell_${Date.now()}`,
       email: email.toLowerCase().trim(),
       name: name.trim(),
       role: UserRole.SELLER,
       commissionRate: commRate,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      password: password || '123456' // default if none provided
     };
 
     const updated = [...sellers, newSeller];
     setSellers(updated);
     localStorage.setItem('3d_mem_sellers_db', JSON.stringify(updated));
+    // Synchronize to Firestore
+    saveUserToFirestore(newSeller);
     return newSeller;
   };
 
@@ -136,16 +164,21 @@ export default function App() {
     const updated = sellers.filter(s => s.id !== id);
     setSellers(updated);
     localStorage.setItem('3d_mem_sellers_db', JSON.stringify(updated));
+    // Synchronize to Firestore
+    deleteUserFromFirestore(id);
 
     // Cleanup: If orders belonged to this deleted seller, make them unassigned (organic)
     const updatedOrders = orders.map(o => {
       if (o.sellerId === id) {
-        return {
+        const updatedOrd = {
           ...o,
           sellerId: 'unassigned',
           sellerName: 'Orgânico / Sem Vendedor',
           sellerCommissionAmount: 0 // Revert commission to 0 for organic sales
         };
+        // Save back individually to Firestore
+        saveOrderToFirestore(updatedOrd);
+        return updatedOrd;
       }
       return o;
     });
@@ -154,7 +187,15 @@ export default function App() {
   };
 
   const handleUpdateSellerCommission = (id: string, rate: number) => {
-    const updated = sellers.map(s => s.id === id ? { ...s, commissionRate: rate } : s);
+    const updated = sellers.map(s => {
+      if (s.id === id) {
+        const updatedS = { ...s, commissionRate: rate };
+        // Sync user update
+        saveUserToFirestore(updatedS);
+        return updatedS;
+      }
+      return s;
+    });
     setSellers(updated);
     localStorage.setItem('3d_mem_sellers_db', JSON.stringify(updated));
 
@@ -163,13 +204,15 @@ export default function App() {
       if (o.sellerId === id) {
         const commAmount = o.revenue * (rate / 100);
         const netProfit = o.revenue - o.shopeeFee - o.calculatedCost - commAmount;
-        return {
+        const updatedOrd = {
           ...o,
           sellerCommissionRate: rate,
           sellerCommissionAmount: commAmount,
           netProfit,
           profitMargin: o.revenue > 0 ? (netProfit / o.revenue) * 100 : 0
         };
+        saveOrderToFirestore(updatedOrd);
+        return updatedOrd;
       }
       return o;
     });
@@ -194,6 +237,8 @@ export default function App() {
     const updated = [...productCosts, newCost];
     setProductCosts(updated);
     localStorage.setItem('3d_mem_costs_db', JSON.stringify(updated));
+    // Synchronize to Firestore
+    saveProductCostToFirestore(newCost);
   };
 
   const handleDeleteProductCost = (id: string) => {
@@ -201,6 +246,8 @@ export default function App() {
     setSellers(prev => [...prev]); // trigger side effect to ensure update
     setProductCosts(updated);
     localStorage.setItem('3d_mem_costs_db', JSON.stringify(updated));
+    // Synchronize to Firestore
+    deleteProductCostFromFirestore(id);
   };
 
   const handleUpdateProductCost = (
@@ -209,11 +256,15 @@ export default function App() {
     shopeeCommissionRate?: number, 
     customSellerCommission?: number
   ) => {
-    const updated = productCosts.map(c => 
-      c.id === id 
-        ? { ...c, productionCost: cost, shopeeCommissionRate, customSellerCommission } 
-        : c
-    );
+    const updated = productCosts.map(c => {
+      if (c.id === id) {
+        const updatedC = { ...c, productionCost: cost, shopeeCommissionRate, customSellerCommission };
+        // Sync to Firestore
+        saveProductCostToFirestore(updatedC);
+        return updatedC;
+      }
+      return c;
+    });
     setProductCosts(updated);
     localStorage.setItem('3d_mem_costs_db', JSON.stringify(updated));
   };
@@ -229,17 +280,93 @@ export default function App() {
     const combined = Array.from(currentOrdersMap.values());
     setOrders(combined);
     localStorage.setItem('3d_mem_orders_db', JSON.stringify(combined));
+    
+    // Synchronize bulk import to Firestore
+    saveOrdersBulkToFirestore(newOrders);
   };
 
   const handleClearOrders = () => {
+    const currentOrders = [...orders];
     setOrders([]);
     localStorage.removeItem('3d_mem_orders_db');
+    // Synchronize delete orders from Firestore
+    clearAllOrdersFromFirestore(currentOrders);
   };
 
   const handleDeleteOrder = (orderId: string) => {
     const updated = orders.filter(o => o.orderId !== orderId);
     setOrders(updated);
     localStorage.setItem('3d_mem_orders_db', JSON.stringify(updated));
+    // Synchronize delete from Firestore
+    deleteOrderFromFirestore(orderId);
+  };
+
+  // Save or update a product's unit cost, and instantly recalculate all matching transactions
+  const handleSaveOrUpdateCostAndRecalculate = (skuOrName: string, newUnitCost: number) => {
+    const cleanPattern = skuOrName.trim();
+    if (!cleanPattern) return;
+
+    let updatedCosts: ProductCost[] = [];
+    const existingIndex = productCosts.findIndex(
+      (c) => c.nameOrSku.toLowerCase().trim() === cleanPattern.toLowerCase().trim()
+    );
+
+    let targetCostObj: ProductCost;
+    if (existingIndex !== -1) {
+      // Update existing
+      targetCostObj = { ...productCosts[existingIndex], productionCost: newUnitCost };
+      updatedCosts = productCosts.map((c, idx) => 
+        idx === existingIndex ? targetCostObj : c
+      );
+    } else {
+      // Create new
+      targetCostObj = {
+        id: `cost_${Date.now()}`,
+        nameOrSku: cleanPattern,
+        productionCost: newUnitCost
+      };
+      updatedCosts = [...productCosts, targetCostObj];
+    }
+
+    setProductCosts(updatedCosts);
+    localStorage.setItem('3d_mem_costs_db', JSON.stringify(updatedCosts));
+    // Save/Update in Firestore
+    saveProductCostToFirestore(targetCostObj);
+
+    // Instantly map and update existing orders
+    const updatedOrders = orders.map((order) => {
+      const matchBySku = order.sku && order.sku.toLowerCase().trim() === cleanPattern.toLowerCase().trim();
+      const matchByName = order.productName && order.productName.toLowerCase().trim() === cleanPattern.toLowerCase().trim();
+
+      if (matchBySku || matchByName) {
+        const foundCost = newUnitCost * order.quantity;
+        const shopeeFee = order.revenue * (order.shopeeCommissionRate / 100);
+        const netAvailableMargin = order.revenue - shopeeFee - foundCost;
+        
+        let sellerCommissionAmount = 0;
+        if (order.sellerId !== 'unassigned') {
+          sellerCommissionAmount = Math.max(0, netAvailableMargin) * (order.sellerCommissionRate / 100);
+        }
+        
+        const netProfit = netAvailableMargin - sellerCommissionAmount;
+        const profitMargin = order.revenue > 0 ? (netProfit / order.revenue) * 100 : 0;
+
+        const updatedOrder = {
+          ...order,
+          calculatedCost: foundCost,
+          sellerCommissionAmount,
+          netProfit,
+          profitMargin
+        };
+        // Update order in Firestore
+        saveOrderToFirestore(updatedOrder);
+        return updatedOrder;
+      }
+      return order;
+    });
+
+    setOrders(updatedOrders);
+    localStorage.setItem('3d_mem_orders_db', JSON.stringify(updatedOrders));
   };
 
   // Allow admin/vendedor assignment mapping for unassigned transactions
@@ -253,7 +380,7 @@ export default function App() {
         // Recompute net profit for this transaction
         const profit = o.revenue - o.shopeeFee - o.calculatedCost - commAmt;
 
-        return {
+        const updatedOrder = {
           ...o,
           sellerId: sellerId,
           sellerName: targetSeller ? targetSeller.name : 'Orgânico / Sem Vendedor',
@@ -262,6 +389,9 @@ export default function App() {
           netProfit: profit,
           profitMargin: o.revenue > 0 ? (profit / o.revenue) * 100 : 0
         };
+        // Save order change to firestore
+        saveOrderToFirestore(updatedOrder);
+        return updatedOrder;
       }
       return o;
     });
@@ -302,6 +432,7 @@ export default function App() {
         onAddProductCost={handleAddProductCost}
         onDeleteProductCost={handleDeleteProductCost}
         onUpdateProductCost={handleUpdateProductCost}
+        onSaveOrUpdateCostAndRecalculate={handleSaveOrUpdateCostAndRecalculate}
         orders={orders}
         onImportOrders={handleImportOrders}
         onClearOrders={handleClearOrders}
@@ -317,6 +448,10 @@ export default function App() {
     <DashboardSeller
       currentUser={activeUser}
       orders={orders}
+      productCosts={productCosts}
+      onImportOrders={handleImportOrders}
+      onDeleteOrder={handleDeleteOrder}
+      onSaveOrUpdateCostAndRecalculate={handleSaveOrUpdateCostAndRecalculate}
       onLogOut={handleLogOut}
     />
   );

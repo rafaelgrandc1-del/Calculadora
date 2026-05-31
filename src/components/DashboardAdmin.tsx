@@ -63,6 +63,7 @@ interface DashboardAdminProps {
   onAddProductCost: (pattern: string, cost: number, shopeeCommissionRate?: number, customSellerCommission?: number) => void;
   onDeleteProductCost: (id: string) => void;
   onUpdateProductCost: (id: string, cost: number, shopeeCommissionRate?: number, customSellerCommission?: number) => void;
+  onSaveOrUpdateCostAndRecalculate: (skuOrName: string, newUnitCost: number) => void;
   orders: ConcludedOrder[];
   onImportOrders: (newOrders: ConcludedOrder[]) => void;
   onClearOrders: () => void;
@@ -81,6 +82,7 @@ export function DashboardAdmin({
   onAddProductCost,
   onDeleteProductCost,
   onUpdateProductCost,
+  onSaveOrUpdateCostAndRecalculate,
   orders,
   onImportOrders,
   onClearOrders,
@@ -1685,7 +1687,7 @@ export function DashboardAdmin({
                       <th className="pb-3 pl-2">ID do Pedido / Data</th>
                       <th className="pb-3">Item / SKU / Variação</th>
                       <th className="pb-3 text-right">Venda Bruta</th>
-                      <th className="pb-3 text-right">Filamento Cost</th>
+                      <th className="pb-3 text-right">Custo Unit. (Salva p/ Próximos)</th>
                       <th className="pb-3 text-right">Comissões (Taxa Shopee + Seller)</th>
                       <th className="pb-3 text-right">Lucro Líquido</th>
                       <th className="pb-3 pr-2 text-center">Atribuir Vendedor</th>
@@ -1708,8 +1710,45 @@ export function DashboardAdmin({
                         <td className="py-3.5 text-right font-extrabold text-white">
                           {formatBRL(item.revenue)}
                         </td>
-                        <td className="py-3.5 text-right text-red-400 font-medium">
-                          {formatBRL(item.calculatedCost)}
+                        <td className="py-3.5 text-right">
+                          <div className="flex flex-col items-end gap-1">
+                            <div className="flex items-center gap-1 justify-end">
+                              <span className="text-[10px] text-slate-500">R$</span>
+                              <input
+                                key={`cost-${item.orderId}-${item.calculatedCost}`}
+                                id={`cost-edit-input-${item.orderId}`}
+                                type="number"
+                                step="0.50"
+                                min="0"
+                                defaultValue={(item.calculatedCost / item.quantity).toFixed(2)}
+                                onBlur={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  if (!isNaN(val) && val >= 0) {
+                                    const currentUnitCost = item.calculatedCost / item.quantity;
+                                    if (Math.abs(val - currentUnitCost) > 0.005) {
+                                      const key = item.sku && item.sku !== 'S/ SKU' ? item.sku : item.productName;
+                                      onSaveOrUpdateCostAndRecalculate(key, val);
+                                    }
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const val = parseFloat((e.target as HTMLInputElement).value);
+                                    if (!isNaN(val) && val >= 0) {
+                                      const key = item.sku && item.sku !== 'S/ SKU' ? item.sku : item.productName;
+                                      onSaveOrUpdateCostAndRecalculate(key, val);
+                                      (e.target as HTMLInputElement).blur();
+                                    }
+                                  }
+                                }}
+                                className="w-16 bg-slate-950 focus:bg-slate-900 hover:border-slate-700 focus:border-cyan-500 border border-slate-800 text-xs text-white p-1 rounded text-right outline-none transition-all font-mono"
+                                title="Defina o valor de custo unitário para este produto. Salvamento imediato para as próximas simulações/extracões."
+                              />
+                            </div>
+                            <span className="text-[9px] text-slate-500 font-mono">
+                              Total: {formatBRL(item.calculatedCost)}
+                            </span>
+                          </div>
                         </td>
                         <td className="py-3.5 text-right">
                           <span className="block font-semibold text-amber-500">{formatBRL(item.shopeeFee)} <span className="text-[9px] text-slate-500">(Shopee)</span></span>
