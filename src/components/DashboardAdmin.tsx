@@ -11,7 +11,8 @@ import {
   calculateOrderMetrics, 
   parseBRLNumber, 
   generateDemoShopeeCSV, 
-  normalizeHeader 
+  normalizeHeader,
+  extractHeadersAndRows
 } from '../utils/shopeeParser';
 import {
   TrendingUp,
@@ -242,10 +243,20 @@ export function DashboardAdmin({
           // Split into rows and clean up quotes/commas/semicolons
           const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
           if (lines.length > 0) {
-            // Determine delimiter: comma or semicolon
-            const d = lines[0].includes(';') ? ';' : ',';
-            headers = lines[0].split(d).map(h => h.replace(/^["']|["']$/g, '').trim());
-            rows = lines.slice(1).map(l => l.split(d).map(cell => cell.replace(/^["']|["']$/g, '').trim()));
+            // Determine delimiter: comma or semicolon by scanning first few lines to look for frequency
+            let semicolonCount = 0;
+            let commaCount = 0;
+            const sampleLines = lines.slice(0, 10);
+            for (const line of sampleLines) {
+              semicolonCount += (line.match(/;/g) || []).length;
+              commaCount += (line.match(/,/g) || []).length;
+            }
+            const d = semicolonCount >= commaCount ? ';' : ',';
+
+            const grid = lines.map(l => l.split(d).map(cell => cell.replace(/^["']|["']$/g, '').trim()));
+            const parsedResult = extractHeadersAndRows(grid);
+            headers = parsedResult.headers;
+            rows = parsedResult.rows;
           }
         } else {
           // Parse Binary Excel with XLSX package
@@ -266,8 +277,9 @@ export function DashboardAdmin({
           const parsed = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
           
           if (parsed && parsed.length > 0) {
-            headers = parsed[0].map((h: any) => String(h || '').trim());
-            rows = parsed.slice(1).filter(r => r.some(cell => cell !== null && cell !== ''));
+            const parsedResult = extractHeadersAndRows(parsed);
+            headers = parsedResult.headers;
+            rows = parsedResult.rows;
           }
         }
 

@@ -2,13 +2,13 @@ import { ConcludedOrder, ProductCost, UserAccount, UserRole } from '../types';
 
 // Typical column headers used by Shopee (in Portuguese)
 export const SHOPEE_POSSIBLE_HEADERS = {
-  orderId: ['Nº do pedido', 'ID do pedido', 'No. do Pedido', 'Nº pedido', 'Numero do Pedido', 'id_pedido', 'order_id'],
-  productName: ['Nome do Produto', 'Nome produto', 'Produto', 'product_name', 'Nome do item'],
-  variation: ['Opção de variação', 'Opção Variação', 'Variação', 'Venda de Variação', 'variation'],
-  sku: ['SKU', 'Referência', 'Código de referência', 'SKU Parent Parent SKU', 'sku'],
-  quantity: ['Quantidade', 'Qtd', 'Quant.', 'quantity', 'qtd'],
-  revenue: ['Total pago pelo comprador', 'Preço Unitário', 'Preço de Venda', 'Preço do Produto', 'Preço', 'Preço cobrado de cada item', 'Subtotal', 'total_amount', 'Receita'],
-  date: ['Data de criação do pedido', 'Hora de criação do pedido', 'Data do pedido', 'Data do Pedido', 'Hora do pagamento', 'Data concluído', 'date_created'],
+  orderId: ['Nº do pedido', 'ID do pedido', 'No. do Pedido', 'Nº pedido', 'Numero do Pedido', 'id_pedido', 'order_id', 'Código do pedido', 'No. de Pedido'],
+  productName: ['Nome do Produto', 'Nome produto', 'Produto', 'product_name', 'Nome do item', 'Item Name', 'Nome de Produto / Nome da variação'],
+  variation: ['Opção de variação', 'Opção Variação', 'Variação', 'Venda de Variação', 'variation', 'Nome da Var.', 'Nome da Variação'],
+  sku: ['SKU', 'Referência', 'Código de referência', 'SKU Parent Parent SKU', 'sku', 'Código SKU', 'SKU Ref'],
+  quantity: ['Quantidade', 'Qtd', 'Quant.', 'quantity', 'qtd', 'Qtd.'],
+  revenue: ['Total pago pelo comprador', 'Preço Unitário', 'Preço de Venda', 'Preço do Produto', 'Preço', 'Preço Pago', 'Preco Pago', 'Total Pago', 'Preço cobrado de cada item', 'Subtotal', 'total_amount', 'Receita', 'Preço Unitário do Produto'],
+  date: ['Data de criação do pedido', 'Hora de criação do pedido', 'Data do pedido', 'Data do Pedido', 'Hora do pagamento', 'Data concluído', 'date_created', 'Data de envio', 'Data de Criação do Pedido'],
 };
 
 /**
@@ -21,6 +21,66 @@ export function normalizeHeader(val: string): string {
     .replace(/[\u0300-\u036f]/g, '') // remove accents
     .replace(/[^a-z0-9]/g, '') // remove special characters
     .trim();
+}
+
+/**
+ * Checks if a single string matches any candidate header in SHOPEE_POSSIBLE_HEADERS
+ */
+export function isShopeeHeaderField(cell: string): boolean {
+  const norm = normalizeHeader(cell);
+  if (!norm) return false;
+  for (const candidates of Object.values(SHOPEE_POSSIBLE_HEADERS)) {
+    const candidateCleans = candidates.map((c) => normalizeHeader(c));
+    if (candidateCleans.some((cc) => norm.includes(cc) || cc.includes(norm))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Extracts headers and rows from a two-dimensional array of strings,
+ * finding the best row to act as the column headers based on candidate match score.
+ */
+export function extractHeadersAndRows(grid: any[][]): { headers: string[]; rows: any[][] } {
+  if (!grid || grid.length === 0) {
+    return { headers: [], rows: [] };
+  }
+
+  let maxScore = -1;
+  let headerIndex = 0;
+
+  // Search the first 15 rows for the best header row (most matched Shopee keywords)
+  const limit = Math.min(15, grid.length);
+  for (let i = 0; i < limit; i++) {
+    const row = grid[i];
+    if (!row) continue;
+    let score = 0;
+    for (const cell of row) {
+      if (cell && isShopeeHeaderField(String(cell))) {
+        score++;
+      }
+    }
+    // Boost score if it contains key elements like orderId or productName
+    const rowStr = row.map(c => normalizeHeader(String(c || ''))).join(' ');
+    if (rowStr.includes('ndopedido') || rowStr.includes('iddopedido')) score += 2;
+    if (rowStr.includes('nomedoproduto') || rowStr.includes('nomedoitem')) score += 1;
+
+    if (score > maxScore) {
+      maxScore = score;
+      headerIndex = i;
+    }
+  }
+
+  // If no row matched any headers sensibly, default to 0
+  const finalHeaderIndex = maxScore > 0 ? headerIndex : 0;
+
+  const headers = (grid[finalHeaderIndex] || []).map((h) => String(h || '').trim());
+  
+  // Rows are everything after the finalHeaderIndex that are not empty
+  const rows = grid.slice(finalHeaderIndex + 1).filter((r) => r && r.some((cell) => cell !== null && cell !== ''));
+
+  return { headers, rows };
 }
 
 /**
@@ -51,13 +111,13 @@ export function detectShopeeColumns(headers: string[]): Record<string, string> {
   }
 
   // Fallback defaults if not found
-  if (!result.orderIdCol) result.orderIdCol = headers[0] || '';
-  if (!result.productNameCol) result.productNameCol = headers.find(h => normalizeHeader(h).includes('prod')) || headers[1] || '';
-  if (!result.variationCol) result.variationCol = headers.find(h => normalizeHeader(h).includes('var')) || '';
-  if (!result.skuCol) result.skuCol = headers.find(h => normalizeHeader(h).includes('sku')) || '';
-  if (!result.quantityCol) result.quantityCol = headers.find(h => normalizeHeader(h).includes('qtd') || normalizeHeader(h).includes('quant')) || '';
-  if (!result.revenueCol) result.revenueCol = headers.find(h => normalizeHeader(h).includes('total') || normalizeHeader(h).includes('prec') || normalizeHeader(h).includes('pago')) || '';
-  if (!result.dateCol) result.dateCol = headers.find(h => normalizeHeader(h).includes('data') || normalizeHeader(h).includes('hora') || normalizeHeader(h).includes('criac')) || '';
+  if (!result.orderIdCol) result.orderIdCol = headers.find(h => normalizeHeader(h).includes('ped') || normalizeHeader(h).includes('ord')) || headers[0] || '';
+  if (!result.productNameCol) result.productNameCol = headers.find(h => normalizeHeader(h).includes('prod') || normalizeHeader(h).includes('item')) || headers[1] || '';
+  if (!result.variationCol) result.variationCol = headers.find(h => normalizeHeader(h).includes('var') || normalizeHeader(h).includes('opc')) || '';
+  if (!result.skuCol) result.skuCol = headers.find(h => normalizeHeader(h).includes('sku') || normalizeHeader(h).includes('ref')) || '';
+  if (!result.quantityCol) result.quantityCol = headers.find(h => normalizeHeader(h).includes('qtd') || normalizeHeader(h).includes('quant') || normalizeHeader(h).includes('unid')) || '';
+  if (!result.revenueCol) result.revenueCol = headers.find(h => normalizeHeader(h).includes('total') || normalizeHeader(h).includes('prec') || normalizeHeader(h).includes('pago') || normalizeHeader(h).includes('recei')) || '';
+  if (!result.dateCol) result.dateCol = headers.find(h => normalizeHeader(h).includes('data') || normalizeHeader(h).includes('hora') || normalizeHeader(h).includes('criac') || normalizeHeader(h).includes('concl')) || '';
 
   return result;
 }
