@@ -386,6 +386,7 @@ export interface ParsedPasteOrder {
   status?: string;
   productId?: string; // Associated product cost ID, if mapped
   sellerId?: string;  // Associated seller ID, if mapped
+  productionCost?: number; // Custom production cost override
 }
 
 export function parsePastedShopeeText(text: string): ParsedPasteOrder[] {

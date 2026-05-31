@@ -79,6 +79,35 @@ export function DashboardSeller({
     return orders.filter((o) => o.sellerId === currentUser.id);
   }, [orders, currentUser]);
 
+  // Real-time batch import calculations for seller modal
+  const modalCalculations = useMemo(() => {
+    let totalRevenue = 0;
+    let totalCost = 0;
+    let totalSellerCommission = 0;
+
+    reviewOrders.forEach((item) => {
+      totalRevenue += item.revenue || 0;
+      totalCost += item.productionCost || 0;
+
+      const rate = currentUser.commissionRate || 50.0;
+      const netMargin = Math.max(0, (item.revenue || 0) - (item.productionCost || 0));
+      totalSellerCommission += netMargin * (rate / 100);
+    });
+
+    const myCommission = totalSellerCommission; // The seller's commission (sua comissão)
+    const platformCommission = totalRevenue - totalCost - totalSellerCommission;
+    const totalToProducer = totalCost + platformCommission; // Total to send to producer = Total - MyCommission (total faturado - comissão do vendedor)
+
+    return {
+      totalRevenue,
+      totalCost,
+      totalSellerCommission,
+      myCommission,
+      platformCommission,
+      totalToProducer
+    };
+  }, [reviewOrders, currentUser]);
+
   // Calculations for KPI cards
   const stats = useMemo(() => {
     let totalRevenueGenerated = 0;
@@ -143,10 +172,17 @@ export function DashboardSeller({
 
       // Assign default product if found
       const initialProductId = defaultProductId || (productCosts.length > 0 ? productCosts[0].id : '');
-      const withProducts = parsed.map(order => ({
-        ...order,
-        productId: initialProductId
-      }));
+      const withProducts = parsed.map(order => {
+        const resolvedProductId = order.productId || initialProductId;
+        const matchedProduct = productCosts.find(p => p.id === resolvedProductId);
+        const costPrice = matchedProduct ? matchedProduct.productionCost : 15.0;
+
+        return {
+          ...order,
+          productId: resolvedProductId,
+          productionCost: costPrice
+        };
+      });
 
       setReviewOrders(withProducts);
       setShowMappingStep(true);
@@ -201,7 +237,13 @@ R$21,23`;
           revenue: item.revenue,
           date: item.date,
           seller: currentUser,
-          productCosts,
+          productCosts: item.productionCost !== undefined ? [{
+            id: 'temp',
+            nameOrSku: prodNameVal,
+            productionCost: item.productionCost,
+            shopeeCommissionRate: 0,
+            customSellerCommission: 0
+          }] : productCosts,
           shopeeCommissionRate: 0.0, // Pre-processed/already discounted on paste
         });
 
@@ -461,101 +503,195 @@ R$21,23`;
               </div>
             </div>
           )}
-
-          {/* Tabular review and map screen before saving */}
-          {showMappingStep && (
-            <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 mt-4 space-y-4" id="seller-review-box">
-              <div className="flex items-center gap-2 text-cyan-400">
-                <Sliders className="w-5 h-5" />
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Revisar e Associar Peças do Lote</h3>
-              </div>
-              <p className="text-xs text-slate-400">
-                Encontramos <strong className="text-cyan-400">{reviewOrders.length}</strong> pedidos no texto enviado. Agora, indique qual modelo/peça 3D corresponde a cada pedido para calcular o custo e a comissão de {currentUser.commissionRate}%:
-              </p>
-
-              <div className="overflow-x-auto border border-slate-800 rounded-xl max-h-96">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="bg-slate-900 text-slate-400 font-semibold border-b border-slate-800">
-                      <th className="p-3">Nº do Pedido</th>
-                      <th className="p-3">Data</th>
-                      <th className="p-3">Forma / Status</th>
-                      <th className="p-3">Valor Liberado</th>
-                      <th className="p-3 text-cyan-400">Associar à Peça (Produção)</th>
-                      <th className="p-3 text-center">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reviewOrders.map((order, idx) => (
-                      <tr key={idx} className="border-b border-slate-900/60 hover:bg-slate-900/40 transition-colors">
-                        <td className="p-3 font-mono font-bold text-slate-300">{order.orderId}</td>
-                        <td className="p-3 text-slate-400">{order.date}</td>
-                        <td className="p-3">
-                          <span className="text-[10px] bg-slate-900 text-slate-400 px-2 py-0.5 rounded font-semibold border border-slate-800/80">
-                            {order.paymentMethod || 'Outro'}
-                          </span>
-                        </td>
-                        <td className="p-3 font-bold text-emerald-400 font-sans">
-                          {formatBRL(order.revenue)}
-                        </td>
-                        <td className="p-3">
-                          <select
-                            id={`seller-product-select-${idx}`}
-                            value={order.productId || ''}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setReviewOrders(prev => prev.map((curr, cidx) => cidx === idx ? { ...curr, productId: val } : curr));
-                            }}
-                            className="w-full bg-slate-900 border border-slate-850 hover:border-cyan-500/50 text-xs text-slate-100 p-1.5 rounded-lg outline-none focus:border-cyan-500 transition-colors"
-                          >
-                            <option value="">-- Escolha o Modelo / Peça --</option>
-                            {productCosts.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.nameOrSku} (Custo: R$ {p.productionCost.toFixed(2)})
-                              </option>
-                            ))}
-                            <option value="default_p">Custo Geral / Padrão (R$ 15,00 / item)</option>
-                          </select>
-                        </td>
-                        <td className="p-3 text-center">
-                          <button
-                            id={`btn-remove-review-${idx}`}
-                            type="button"
-                            title="Remover este pedido do lote"
-                            onClick={() => {
-                              setReviewOrders(prev => prev.filter((_, cidx) => cidx !== idx));
-                            }}
-                            className="text-red-400 hover:text-red-300 p-1.5 hover:bg-red-950/30 rounded"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-900">
-                <button
-                  type="button"
-                  onClick={() => { setShowMappingStep(false); setReviewOrders([]); }}
-                  className="bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 px-4 py-2 rounded-xl text-xs font-semibold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  id="confirm-sync-btn"
-                  type="button"
-                  onClick={confirmMappingAndImport}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md shadow-emerald-950/20"
-                >
-                  Confirmar e Importar {reviewOrders.length} Pedidos
-                </button>
-              </div>
-            </div>
-          )}
         </div>
+
+        {/* Tabular review popup modal (outra janela) before saving */}
+        {showMappingStep && (
+          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 md:p-6 overflow-y-auto" id="seller-shopee-review-modal">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-5xl shadow-2xl shadow-slate-950/80 relative flex flex-col max-h-[90vh]" id="seller-shopee-review-panel">
+              
+              {/* Modal Header */}
+              <div className="p-5 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-950/30 rounded-t-3xl">
+                <div>
+                  <div className="flex items-center gap-2 text-cyan-400">
+                    <Sliders className="w-5 h-5" />
+                    <h3 className="text-base font-bold text-white uppercase tracking-wider">Acerto Financeiro do Lote</h3>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Encontramos <strong className="text-cyan-400">{reviewOrders.length}</strong> pedidos. Defina o custo de fabricação para calcular suas comissões exatas.
+                  </p>
+                </div>
+
+                {/* Bulk controls directly inside the window */}
+                <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 flex flex-wrap items-center gap-4 shrink-0">
+                  <div>
+                    <label htmlFor="seller-global-cost-input" className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">Custo Padrão do Lote (R$)</label>
+                    <input
+                      id="seller-global-cost-input"
+                      type="number"
+                      step="0.01"
+                      placeholder="Ex: 15.00"
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setReviewOrders(prev => prev.map(o => ({ ...o, productionCost: val })));
+                      }}
+                      className="w-32 bg-slate-900 border border-slate-800 rounded-lg p-1.5 text-xs text-center font-bold text-emerald-400 font-mono outline-none focus:border-cyan-500"
+                    />
+                  </div>
+
+                  <div className="text-[10px] text-slate-500 max-w-xs leading-tight">
+                    💡 Defina uma taxa de produção geral ou configure de forma individual logo abaixo.
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Scrollable Table Body */}
+              <div className="p-5 overflow-y-auto flex-1 space-y-4 max-h-[50vh]">
+                <div className="overflow-x-auto border border-slate-800 rounded-xl">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-950 text-slate-400 font-semibold border-b border-slate-800">
+                        <th className="p-3">Nº do Pedido</th>
+                        <th className="p-3">Data</th>
+                        <th className="p-3">Forma / Método</th>
+                        <th className="p-3">Valor Liberado</th>
+                        <th className="p-3 text-emerald-400">Custo Unitário (R$)</th>
+                        <th className="p-3 text-center">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reviewOrders.map((order, idx) => (
+                        <tr key={idx} className="border-b border-slate-900/60 hover:bg-slate-950/20 transition-colors">
+                          <td className="p-3 font-mono font-bold text-slate-300">{order.orderId}</td>
+                          <td className="p-3 text-slate-400">{order.date}</td>
+                          <td className="p-3">
+                            <span className="text-[10px] bg-slate-950 text-slate-400 px-2 py-0.5 rounded font-semibold border border-slate-800/80">
+                              {order.paymentMethod || 'Padrão'}
+                            </span>
+                          </td>
+                          <td className="p-3 font-bold text-cyan-300 font-sans">
+                            {formatBRL(order.revenue)}
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-1">
+                              <span className="text-slate-500 font-mono text-[10px]">R$</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={order.productionCost !== undefined ? order.productionCost : 15.0}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value);
+                                  const safeVal = isNaN(val) ? 0 : val;
+                                  setReviewOrders(prev => prev.map((curr, cidx) => 
+                                    cidx === idx ? { ...curr, productionCost: safeVal } : curr
+                                  ));
+                                }}
+                                className="w-20 bg-slate-950 border border-slate-800 text-xs text-emerald-400 font-bold p-1 rounded font-mono text-center outline-none focus:border-emerald-500"
+                              />
+                            </div>
+                          </td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              title="Remover este pedido do lote"
+                              onClick={() => {
+                                setReviewOrders(prev => prev.filter((_, cidx) => cidx !== idx));
+                              }}
+                              className="text-red-400 hover:text-red-300 p-1.5 hover:bg-red-950/30 rounded transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Modal Footer Summary */}
+              <div className="p-6 border-t border-slate-800 bg-slate-950/50 rounded-b-3xl space-y-4">
+                
+                {/* Financial Settlement values grids */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  
+                  {/* Total */}
+                  <div className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-xl">
+                    <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wide block">Faturamento Lote</span>
+                    <span className="text-lg font-black text-white font-sans mt-0.5 block">
+                      {formatBRL(modalCalculations.totalRevenue)}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block leading-tight mt-0.5">Valor liberado Shopee</span>
+                  </div>
+
+                  {/* Custo do Produto */}
+                  <div className="bg-slate-950 border border-slate-800/80 p-3.5 rounded-xl">
+                    <span className="text-[10px] text-emerald-400 font-extrabold uppercase tracking-wide block">Custo do Produto</span>
+                    <span className="text-lg font-black text-emerald-400 font-sans mt-0.5 block">
+                      {formatBRL(modalCalculations.totalCost)}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block leading-tight mt-0.5">Insumos de fabricação</span>
+                  </div>
+
+                  {/* Minha Comissão */}
+                  <div className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-xl">
+                    <span className="text-[10px] text-indigo-400 font-extrabold uppercase tracking-wide block">Minha Comissão Sua</span>
+                    <span className="text-lg font-black text-indigo-400 font-sans mt-0.5 block">
+                      {formatBRL(modalCalculations.myCommission)}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block leading-tight mt-0.5">Sua comissão ({currentUser.commissionRate}%)</span>
+                  </div>
+
+                  {/* Comissão do Produtor */}
+                  <div className="bg-slate-900 border border-slate-800/80 p-3.5 rounded-xl">
+                    <span className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-wide block">Comissão Produtor</span>
+                    <span className="text-lg font-black text-cyan-400 font-sans mt-0.5 block">
+                      {formatBRL(modalCalculations.platformCommission)}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block leading-tight mt-0.5">Margem do fabricante</span>
+                  </div>
+
+                  {/* Total a enviar para o Produtor */}
+                  <div className="bg-cyan-950/30 border-2 border-cyan-500/30 p-3.5 rounded-xl col-span-2 md:col-span-1 shadow-inner">
+                    <span className="text-[10px] text-cyan-300 font-bold uppercase tracking-wider block">Enviar p/ Produtor</span>
+                    <span className="text-xl font-black text-cyan-300 font-sans mt-0.5 block">
+                      {formatBRL(modalCalculations.totalToProducer)}
+                    </span>
+                    <span className="text-[9px] text-cyan-500 font-semibold block leading-tight mt-0.5">Custo + Partilha Produtor</span>
+                  </div>
+
+                </div>
+
+                {/* Operational controls footer */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                  <p className="text-[10.5px] text-slate-500 max-w-lg leading-relaxed">
+                    ⚠️ **Aviso de Conciliação**: Estes valores representam o fechamento direto do lote colado e se atualizarão imediatamente conforme você modifique os custos.
+                  </p>
+
+                  <div className="flex items-center gap-2 justify-end shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => { setShowMappingStep(false); setReviewOrders([]); }}
+                      className="bg-slate-850 hover:bg-slate-800 border border-slate-800 hover:text-white text-slate-400 px-5 py-2.5 rounded-xl text-xs font-semibold"
+                    >
+                      Cancelar Lote
+                    </button>
+                    <button
+                      type="button"
+                      onClick={confirmMappingAndImport}
+                      className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 px-6 py-2.5 rounded-xl text-xs font-black shadow-lg shadow-cyan-950/50 hover:shadow-cyan-500/20 hover:scale-[1.01] transition-all flex items-center gap-1.5"
+                    >
+                      ✓ Confirmar e Importar {reviewOrders.length} Pedidos
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+        )}
 
         {/* Charts & Listings split row layout */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" id="seller-visualizers-split">
