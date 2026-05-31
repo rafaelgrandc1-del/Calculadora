@@ -376,3 +376,117 @@ export function getDefault3DMemoriesCosts(): ProductCost[] {
 export function getDefaultSellers(): UserAccount[] {
   return [];
 }
+
+export interface ParsedPasteOrder {
+  orderId: string;
+  date: string;
+  revenue: number; // Valor liberado
+  buyerName?: string;
+  paymentMethod?: string;
+  status?: string;
+  productId?: string; // Associated product cost ID, if mapped
+  sellerId?: string;  // Associated seller ID, if mapped
+}
+
+export function parsePastedShopeeText(text: string): ParsedPasteOrder[] {
+  if (!text) return [];
+
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l !== '');
+  if (lines.length === 0) return [];
+
+  const hasTabs = lines.some(line => line.includes('\t'));
+  const parsedOrders: ParsedPasteOrder[] = [];
+
+  if (hasTabs) {
+    lines.forEach(line => {
+      const cells = line.split('\t').map(c => c.trim());
+      if (cells.length < 2) return;
+      
+      const orderIdIdx = cells.findIndex(c => /^[A-Z5-9]{12,18}$/i.test(c) || /^\d{12,18}$/.test(c) || /^[A-Z0-9]+$/i.test(c) && c.length >= 10 && c.length <= 18);
+      if (orderIdIdx === -1) return;
+      
+      const orderId = cells[orderIdIdx];
+      const dateCell = cells.find(c => /\b\d{2}\/\d{2}\/\d{4}\b/.test(c)) || '';
+      
+      const buyerCell = cells.find(c => /comprador:|comprador\s*:/i.test(c)) || '';
+      const buyerName = buyerCell ? buyerCell.replace(/comprador\s*:/i, '').trim() : '';
+
+      let revenue = 0;
+      const moneyCell = cells.find(c => /R\$\s*[\d.,]+/i.test(c) || (/\d+,\d{2}/.test(c) && c !== orderId));
+      if (moneyCell) {
+        revenue = parseBRLNumber(moneyCell);
+      }
+
+      const paymentMethod = cells.find(c => /pix|cart\u00E3o|cred|deb|boleto|transfer/i.test(c)) || '';
+      const status = cells.find(c => /pago|complet|sucesso|transfer/i.test(c)) || '';
+
+      parsedOrders.push({
+        orderId,
+        date: dateCell || new Date().toISOString().split('T')[0],
+        revenue,
+        buyerName,
+        paymentMethod,
+        status,
+      });
+    });
+
+    if (parsedOrders.length > 0) {
+      return parsedOrders;
+    }
+  }
+
+  // Interleaved parsing (line-by-line)
+  let i = 0;
+  while (i < lines.length) {
+    const currentLine = lines[i];
+    
+    // Check if line looks like an Order ID
+    if (/^[A-Z0-9]{12,18}$/i.test(currentLine)) {
+      const orderId = currentLine;
+      const blockLines: string[] = [];
+      
+      let j = i + 1;
+      while (j < lines.length && !/^[A-Z0-9]{12,18}$/i.test(lines[j])) {
+        blockLines.push(lines[j]);
+        j++;
+      }
+      
+      let buyerName = '';
+      let dateVal = '';
+      let statusVal = '';
+      let paymentVal = '';
+      let revenueVal = 0;
+
+      blockLines.forEach(line => {
+        if (/comprador\s*:/i.test(line)) {
+          buyerName = line.replace(/comprador\s*:/i, '').trim();
+        } else if (/\b\d{2}\/\d{2}\/\d{4}\b/.test(line)) {
+          dateVal = line;
+        } else if (/pix|cart\u00E3o|cred|deb|boleto|transfer/i.test(line)) {
+          paymentVal = line;
+        } else if (/R\$\s*[\d.,]+/i.test(line) || /\d+,\d{2}/.test(line)) {
+          revenueVal = parseBRLNumber(line);
+        } else {
+          if (line.length > 5) {
+            statusVal = line;
+          }
+        }
+      });
+
+      parsedOrders.push({
+        orderId,
+        date: dateVal || new Date().toISOString().split('T')[0],
+        revenue: revenueVal,
+        buyerName,
+        paymentMethod: paymentVal,
+        status: statusVal,
+      });
+
+      i = j;
+    } else {
+      i++;
+    }
+  }
+
+  return parsedOrders;
+}

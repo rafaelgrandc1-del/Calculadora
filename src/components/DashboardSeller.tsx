@@ -34,7 +34,9 @@ import {
   parseBRLNumber, 
   calculateOrderMetrics,
   generateDemoShopeeCSV,
-  extractHeadersAndRows
+  extractHeadersAndRows,
+  parsePastedShopeeText,
+  ParsedPasteOrder
 } from '../utils/shopeeParser';
 
 interface DashboardSellerProps {
@@ -59,15 +61,14 @@ export function DashboardSeller({
   // Target commission goal for the month (gamification)
   const [comissionGoal, setComissionGoal] = useState<number>(300); // 300 BRL comission target
 
-  // File parsing states
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Copy-paste text area states
+  const [pasteText, setPasteText] = useState('');
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error' | 'loading'>('idle');
   const [importCount, setImportCount] = useState(0);
   const [importError, setImportError] = useState('');
-  const [rawHeaders, setRawHeaders] = useState<string[]>([]);
-  const [rawRows, setRawRows] = useState<any[][]>([]);
-  const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
   const [showMappingStep, setShowMappingStep] = useState(false);
+  const [reviewOrders, setReviewOrders] = useState<ParsedPasteOrder[]>([]);
+  const [defaultProductId, setDefaultProductId] = useState('');
 
   const formatBRL = (val: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -122,143 +123,86 @@ export function DashboardSeller({
       .slice(-12); // Show last 12 active days
   }, [sellerOrders]);
 
-  // Handle Drag-and-Drop & File uploaded
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
-  };
-
-  // Main file reader (CSV or xlsx)
-  const handleFile = (file: File) => {
-    setImportStatus('loading');
+  // Process the copy-pasted text
+  const handleProcessPaste = () => {
+    setImportStatus('idle');
     setImportError('');
     setShowMappingStep(false);
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = e.target?.result;
-        let headers: string[] = [];
-        let rows: any[][] = [];
-
-        if (file.name.endsWith('.csv')) {
-          // Parse CSV text manually for immediate parsing without errors
-          const text = new TextDecoder('utf-8').decode(new Uint8Array(data as ArrayBuffer));
-          const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
-          if (lines.length > 0) {
-            // Determine delimiter: comma or semicolon by scanning first few lines to look for frequency
-            let semicolonCount = 0;
-            let commaCount = 0;
-            const sampleLines = lines.slice(0, 10);
-            for (const line of sampleLines) {
-              semicolonCount += (line.match(/;/g) || []).length;
-              commaCount += (line.match(/,/g) || []).length;
-            }
-            const d = semicolonCount >= commaCount ? ';' : ',';
-
-            const grid = lines.map(l => l.split(d).map(cell => cell.replace(/^["']|["']$/g, '').trim()));
-            const parsedResult = extractHeadersAndRows(grid);
-            headers = parsedResult.headers;
-            rows = parsedResult.rows;
-          }
-        } else {
-          // Parse Binary Excel with XLSX package
-          let typedArray: Uint8Array;
-          if (data instanceof ArrayBuffer) {
-            typedArray = new Uint8Array(data);
-          } else if (typeof data === 'string') {
-            const arr = new Array(data.length);
-            for (let i = 0; i < data.length; i++) arr[i] = data.charCodeAt(i) & 0xFF;
-            typedArray = new Uint8Array(arr);
-          } else {
-            throw new Error("Formato de arquivo incompatível.");
-          }
-
-          const workbook = XLSX.read(typedArray, { type: 'array' });
-          const firstSheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
-          const parsed = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-          
-          if (parsed && parsed.length > 0) {
-            const parsedResult = extractHeadersAndRows(parsed);
-            headers = parsedResult.headers;
-            rows = parsedResult.rows;
-          }
-        }
-
-        if (headers.length === 0 || rows.length === 0) {
-          throw new Error('Nenhum dado legível e com headers pôde ser extraído da planilha.');
-        }
-
-        // Auto-detect mappings
-        const detected = detectShopeeColumns(headers);
-        setRawHeaders(headers);
-        setRawRows(rows);
-        setColumnMapping(detected);
-        setImportStatus('idle');
-        setShowMappingStep(true);
-
-      } catch (err: any) {
-        setImportStatus('error');
-        setImportError(err.message || 'Erro ao decodificar a planilha. Verifique o formato.');
-      }
-    };
-
-    reader.onerror = () => {
+    if (!pasteText.trim()) {
       setImportStatus('error');
-      setImportError('Erro ao ler o arquivo.');
-    };
+      setImportError('Por favor, cole o texto copiado de finanças da Shopee na caixa de texto.');
+      return;
+    }
 
-    reader.readAsArrayBuffer(file);
+    try {
+      const parsed = parsePastedShopeeText(pasteText);
+      if (parsed.length === 0) {
+        throw new Error('Nenhum pedido legível pôde ser identificado. Verifique se o formato do texto colado é compatível (ex: ID do pedido, Data, Método de pagamento, Valor liberado).');
+      }
+
+      // Assign default product if found
+      const initialProductId = defaultProductId || (productCosts.length > 0 ? productCosts[0].id : '');
+      const withProducts = parsed.map(order => ({
+        ...order,
+        productId: initialProductId
+      }));
+
+      setReviewOrders(withProducts);
+      setShowMappingStep(true);
+    } catch (err: any) {
+      setImportStatus('error');
+      setImportError(err.message || 'Erro ao processar as linhas coladas.');
+    }
   };
 
-  // Convert raw rows using verified mapping and add to state
+  const handleInjectSample = () => {
+    const sample = `260515EHMQXRH5
+Comprador:lizandrocavalcante815
+30/05/2026
+Pagamento transferido com sucesso
+Pix
+R$38,25
+260518NX8TKSU8
+Comprador:gilsonsantos126
+30/05/2026
+Pagamento transferido com sucesso
+Cartão de Crédito
+R$21,31
+260517MVC3SCT1
+Comprador:4wsc2owius
+29/05/2026
+Pagamento transferido com sucesso
+Cartão de Crédito
+R$21,23`;
+    setPasteText(sample);
+  };
+
   const confirmMappingAndImport = () => {
     setImportStatus('loading');
     try {
-      const orderIdIdx = rawHeaders.indexOf(columnMapping.orderIdCol);
-      const prodNameIdx = rawHeaders.indexOf(columnMapping.productNameCol);
-      const variationIdx = rawHeaders.indexOf(columnMapping.variationCol);
-      const skuIdx = rawHeaders.indexOf(columnMapping.skuCol);
-      const quantityIdx = rawHeaders.indexOf(columnMapping.quantityCol);
-      const revenueIdx = rawHeaders.indexOf(columnMapping.revenueCol);
-      const dateIdx = rawHeaders.indexOf(columnMapping.dateCol);
-
-      if (revenueIdx === -1 || prodNameIdx === -1) {
-        throw new Error('As colunas de "Nome do Produto" e "Total pago / receita" são obrigatórias.');
+      if (reviewOrders.length === 0) {
+        throw new Error('Nenhum pedido na fila para importação.');
       }
 
       const calculatedOrders: ConcludedOrder[] = [];
 
-      rawRows.forEach((row) => {
-        const orderIdVal = orderIdIdx !== -1 ? String(row[orderIdIdx] || '').trim() : '';
-        const prodNameVal = prodNameIdx !== -1 ? String(row[prodNameIdx] || '').trim() : '';
-        const variationVal = variationIdx !== -1 ? String(row[variationIdx] || '').trim() : '';
-        const skuVal = skuIdx !== -1 ? String(row[skuIdx] || '').trim() : '';
-        const qtyVal = quantityIdx !== -1 ? parseInt(String(row[quantityIdx] || '1'), 10) || 1 : 1;
-        const revVal = revenueIdx !== -1 ? parseBRLNumber(row[revenueIdx]) : 0;
-        const dateVal = dateIdx !== -1 ? String(row[dateIdx] || '').substring(0, 10) : new Date().toISOString().split('T')[0];
+      reviewOrders.forEach((item) => {
+        const matchedProduct = productCosts.find(p => p.id === item.productId);
+        const prodNameVal = matchedProduct ? matchedProduct.nameOrSku : 'Peça Customizada';
+        const skuVal = matchedProduct ? matchedProduct.nameOrSku : 'S/ SKU';
 
-        if (!prodNameVal && revVal === 0) return; // Skip blank rows
-
-        // Auto-map this imported record directly to this logged-in Seller!
         const calculated = calculateOrderMetrics({
-          orderId: orderIdVal || `shopee_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+          orderId: item.orderId || `shopee_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
           productName: prodNameVal,
-          variation: variationVal,
+          variation: item.paymentMethod || 'Padrão',
           sku: skuVal,
-          quantity: qtyVal,
-          revenue: revVal,
-          date: dateVal,
-          seller: currentUser, // Autoassigned to current logged-in seller!
+          quantity: 1,
+          revenue: item.revenue,
+          date: item.date,
+          seller: currentUser,
           productCosts,
-          shopeeCommissionRate: 20.0, // Standard 20% Shopee rate fallback
+          shopeeCommissionRate: 0.0, // Pre-processed/already discounted on paste
         });
 
         calculatedOrders.push(calculated);
@@ -269,26 +213,12 @@ export function DashboardSeller({
       setImportStatus('success');
       setShowMappingStep(false);
       
-      // Reset inputs
-      setRawHeaders([]);
-      setRawRows([]);
-
+      setPasteText('');
+      setReviewOrders([]);
     } catch (err: any) {
       setImportStatus('error');
       setImportError(err.message || 'Erro ao realizar o processamento dos dados.');
     }
-  };
-
-  const handleDownloadDemoCSV = () => {
-    const csvContent = generateDemoShopeeCSV();
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', 'planilha_exemplo_shopee.csv');
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   return (
@@ -430,94 +360,95 @@ export function DashboardSeller({
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4" id="seller-import-card">
           <div>
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
-              <FileSpreadsheet className="w-5 h-5 text-cyan-400" /> Enviar Minha Planilha Shopee / Relatório de Vendas
+              <FileSpreadsheet className="w-5 h-5 text-cyan-400" /> Copiar e Colar Dados de Venda (Shopee Finanças)
             </h2>
             <p className="text-slate-400 text-xs mt-1">
-              Todos os pedidos importados nesta seção serão automaticamente vinculados e comissionados a você (<strong className="text-cyan-400 font-semibold">{currentUser.name}</strong>).
+              Todos os pedidos importados nesta seção serão vinculados e comissionados a você (<strong className="text-cyan-400 font-semibold">{currentUser.name}</strong>). Os ganhos serão calculados com base no valor liberado.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {/* Drop Zone Box */}
-            <div className="md:col-span-2">
-              <div
-                id="seller-dropzone"
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-slate-800 hover:border-cyan-500/70 bg-slate-950/40 hover:bg-slate-950/85 rounded-2xl p-6 text-center cursor-pointer transition-all duration-300 group relative overflow-hidden"
-              >
-                <input
-                  id="seller-file-input"
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx, .xls, .csv"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
+            {/* Paste Box */}
+            <div className="md:col-span-2 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <label htmlFor="shopee-paste-box" className="text-xs text-slate-300 font-medium">Cole as linhas financeiras copiadas da Shopee abaixo:</label>
+                
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase">Lote: Peça Padrão</span>
+                  <select
+                    id="batch-product-select"
+                    value={defaultProductId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setDefaultProductId(id);
+                      setReviewOrders(prev => prev.map(o => ({ ...o, productId: id })));
+                    }}
+                    className="bg-slate-950 border border-slate-850 text-[10.5px] text-slate-300 p-1.5 rounded-lg outline-none focus:border-cyan-500"
+                  >
+                    <option value="">Abaixo (Definir na Revisão)</option>
+                    {productCosts.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nameOrSku}
+                      </option>
+                    ))}
+                    <option value="default_p">Custo Geral (R$ 15,00)</option>
+                  </select>
+                </div>
+              </div>
 
-                {importStatus === 'loading' ? (
-                  <div className="py-6 flex flex-col items-center">
-                    <Loader2 className="w-10 h-10 text-cyan-400 animate-spin mb-3" />
-                    <span className="text-xs font-semibold text-slate-300">Decodificando relatório...</span>
-                  </div>
-                ) : (
-                  <div className="py-2.5">
-                    <UploadCloud className="w-10 h-10 text-slate-600 group-hover:text-cyan-400 mx-auto mb-2 transition-colors" />
-                    <p className="text-xs font-bold text-slate-300 group-hover:text-white transition-colors">
-                      Arraste sua planilha Shopee pra cá ou clique para explorar
-                    </p>
-                    <p className="text-[10px] text-slate-500 mt-1">
-                      Suporta arquivos formatados em .XLSX, .XLS ou .CSV exportados da sua loja Shopee
-                    </p>
-                  </div>
-                )}
+              <div className="relative">
+                <textarea
+                  id="shopee-paste-box"
+                  rows={6}
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-100 placeholder-slate-600 focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/20 font-mono outline-none resize-y transition-colors duration-200"
+                  placeholder="Cole as linhas aqui...&#10;Exemplo de Formato:&#10;260515EHMQXRH5&#10;Comprador:lizandrocavalcante815&#10;30/05/2026&#10;Pagamento transferido com sucesso&#10;Pix&#10;R$38,25"
+                />
+              </div>
+
+              <div className="flex justify-between items-center">
+                <p className="text-[10px] text-slate-500">
+                  Nosso leitor inteligente identifica automaticamente transações individuais, métodos de pagamento, datas e os valores de repasse.
+                </p>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleInjectSample}
+                    className="bg-slate-850 hover:bg-slate-800 text-slate-300 border border-slate-800 px-3 py-1.5 rounded-lg text-[10.5px] font-semibold transition-colors shrink-0"
+                  >
+                    Injetar Exemplo Teste
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleProcessPaste}
+                    className="bg-cyan-600 hover:bg-cyan-500 text-white px-3.5 py-1.5 rounded-lg text-[10.5px] font-bold transition-colors shadow-md shadow-cyan-950/40 shrink-0"
+                  >
+                    Processar Texto
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* Instruction and Demo download box */}
+            {/* Help / Informational Card */}
             <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between" id="seller-help-box">
-              <div className="space-y-1.5 text-xs text-slate-400">
-                <span className="font-bold text-slate-300 uppercase tracking-wider text-[10px] block">Dica de Envio</span>
-                <p>Nós detectamos os campos automaticamente. Ganhos do produtor e suas comissões de {currentUser.commissionRate}% serão re-calculadas em cima do lucro de cada peça impressa.</p>
+              <div className="space-y-2 text-xs text-slate-400">
+                <span className="font-bold text-slate-300 uppercase tracking-wider text-[10px] block">Dica de Importação</span>
+                <p>Copie e cole diretamente as linhas da sua aba de Finanças / Saldo da Shopee.</p>
+                <p>Nós não precisamos de planilhas locais! Você pode mudar a Peça de cada item na etapa de revisão antes de confirmar a gravação.</p>
               </div>
 
-              <div className="pt-4 border-t border-slate-800/60 mt-4 flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={handleDownloadDemoCSV}
-                  className="w-full bg-slate-900 hover:bg-slate-800 border border-slate-850 px-3 py-1.5 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 text-slate-400 hover:text-white transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" /> Baixar Planilha Teste
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setImportStatus('loading');
-                    const csvContent = generateDemoShopeeCSV();
-                    const lines = csvContent.split(/\n/);
-                    const d = ';';
-                    const headers = lines[0].split(d);
-                    const rows = lines.slice(1).map(l => l.split(d));
-                    
-                    setRawHeaders(headers);
-                    setRawRows(rows);
-                    setColumnMapping(detectShopeeColumns(headers));
-                    setShowMappingStep(true);
-                    setImportStatus('idle');
-                  }}
-                  className="w-full bg-cyan-950/60 hover:bg-cyan-900/50 border border-cyan-800/40 text-cyan-400 px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <Sparkles className="w-3.5 h-3.5" /> Injetar Relatório Teste
-                </button>
+              <div className="pt-3 border-t border-slate-800/50 mt-3">
+                <span className="text-[10px] font-semibold text-slate-500 uppercase block mb-1">Como copiar na Shopee:</span>
+                <p className="text-[10px] text-slate-500">Visite o Portal de Vendas &gt; Finanças &gt; Selecione as linhas da tabela e dê Ctrl+C. Cole diretamente na caixa ao lado.</p>
               </div>
             </div>
           </div>
 
           {/* Import feedbacks */}
           {importStatus === 'error' && (
-            <div className="bg-red-950/40 border border-red-800/50 rounded-xl p-4 text-xs text-red-300" id="seller-import-error">
-              <p className="font-bold">Houve um erro de leitura:</p>
+            <div className="bg-red-950/40 border border-red-800/50 rounded-xl p-4 text-xs text-red-300 font-mono" id="seller-import-error">
+              <p className="font-bold">❌ Houve um erro de leitura:</p>
               <p className="mt-1">{importError}</p>
             </div>
           )}
@@ -526,71 +457,100 @@ export function DashboardSeller({
             <div className="bg-emerald-950/40 border border-emerald-800/45 rounded-xl p-4 text-xs text-emerald-300 flex items-center justify-between" id="seller-import-success">
               <div className="flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-emerald-400" />
-                <span>Planilha importada com sucesso! <strong>{importCount}</strong> vendas foram adicionadas aos seus registros.</span>
+                <span>Integração de saldo completa! <strong>{importCount}</strong> pedidos adicionados e sincronizados com sucesso.</span>
               </div>
             </div>
           )}
 
-          {/* Column adjustment screen before saving */}
+          {/* Tabular review and map screen before saving */}
           {showMappingStep && (
-            <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 mt-2 space-y-4" id="seller-mapping-box">
+            <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 mt-4 space-y-4" id="seller-review-box">
               <div className="flex items-center gap-2 text-cyan-400">
-                <Sliders className="w-4.5 h-4.5" />
-                <h3 className="text-xs font-bold text-white uppercase tracking-wider">Confirmar Cabeçalhos Identificados</h3>
+                <Sliders className="w-5 h-5" />
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Revisar e Associar Peças do Lote</h3>
               </div>
-              <p className="text-[11px] text-slate-400">
-                O mapeamento abaixo foi detectado automaticamente. Se necessário, ajuste os campos e cofira os dados abaixo:
+              <p className="text-xs text-slate-400">
+                Encontramos <strong className="text-cyan-400">{reviewOrders.length}</strong> pedidos no texto enviado. Agora, indique qual modelo/peça 3D corresponde a cada pedido para calcular o custo e a comissão de {currentUser.commissionRate}%:
               </p>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {Object.keys(columnMapping).map((mapKey) => {
-                  const translations: Record<string, string> = {
-                    orderIdCol: 'Nº do Pedido',
-                    productNameCol: 'Nome do Item',
-                    variationCol: 'Var',
-                    skuCol: 'Código SKU',
-                    quantityCol: 'Quantidade',
-                    revenueCol: 'Preço Pago',
-                    dateCol: 'Data',
-                  };
-
-                  return (
-                    <div key={mapKey} className="bg-slate-900 p-2 text-[11px] rounded-lg border border-slate-850">
-                      <label className="block text-[9px] text-slate-500 font-bold uppercase mb-1">
-                        {translations[mapKey]}
-                      </label>
-                      <select
-                        id={`seller-map-${mapKey}`}
-                        value={columnMapping[mapKey]}
-                        onChange={(e) => setColumnMapping({ ...columnMapping, [mapKey]: e.target.value })}
-                        className="w-full bg-slate-950 border border-slate-800 text-[10px] text-slate-300 p-1 rounded outline-none focus:border-cyan-500"
-                      >
-                        <option value="">Ignorar Coluna</option>
-                        {rawHeaders.map((headerName) => (
-                          <option key={headerName} value={headerName}>
-                            {headerName}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  );
-                })}
+              <div className="overflow-x-auto border border-slate-800 rounded-xl max-h-96">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-900 text-slate-400 font-semibold border-b border-slate-800">
+                      <th className="p-3">Nº do Pedido</th>
+                      <th className="p-3">Data</th>
+                      <th className="p-3">Forma / Status</th>
+                      <th className="p-3">Valor Liberado</th>
+                      <th className="p-3 text-cyan-400">Associar à Peça (Produção)</th>
+                      <th className="p-3 text-center">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reviewOrders.map((order, idx) => (
+                      <tr key={idx} className="border-b border-slate-900/60 hover:bg-slate-900/40 transition-colors">
+                        <td className="p-3 font-mono font-bold text-slate-300">{order.orderId}</td>
+                        <td className="p-3 text-slate-400">{order.date}</td>
+                        <td className="p-3">
+                          <span className="text-[10px] bg-slate-900 text-slate-400 px-2 py-0.5 rounded font-semibold border border-slate-800/80">
+                            {order.paymentMethod || 'Outro'}
+                          </span>
+                        </td>
+                        <td className="p-3 font-bold text-emerald-400 font-sans">
+                          {formatBRL(order.revenue)}
+                        </td>
+                        <td className="p-3">
+                          <select
+                            id={`seller-product-select-${idx}`}
+                            value={order.productId || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setReviewOrders(prev => prev.map((curr, cidx) => cidx === idx ? { ...curr, productId: val } : curr));
+                            }}
+                            className="w-full bg-slate-900 border border-slate-850 hover:border-cyan-500/50 text-xs text-slate-100 p-1.5 rounded-lg outline-none focus:border-cyan-500 transition-colors"
+                          >
+                            <option value="">-- Escolha o Modelo / Peça --</option>
+                            {productCosts.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.nameOrSku} (Custo: R$ {p.productionCost.toFixed(2)})
+                              </option>
+                            ))}
+                            <option value="default_p">Custo Geral / Padrão (R$ 15,00 / item)</option>
+                          </select>
+                        </td>
+                        <td className="p-3 text-center">
+                          <button
+                            id={`btn-remove-review-${idx}`}
+                            type="button"
+                            title="Remover este pedido do lote"
+                            onClick={() => {
+                              setReviewOrders(prev => prev.filter((_, cidx) => cidx !== idx));
+                            }}
+                            className="text-red-400 hover:text-red-300 p-1.5 hover:bg-red-950/30 rounded"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-900">
                 <button
                   type="button"
-                  onClick={() => { setShowMappingStep(false); setRawHeaders([]); setRawRows([]); }}
+                  onClick={() => { setShowMappingStep(false); setReviewOrders([]); }}
                   className="bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 px-4 py-2 rounded-xl text-xs font-semibold"
                 >
                   Cancelar
                 </button>
                 <button
+                  id="confirm-sync-btn"
                   type="button"
                   onClick={confirmMappingAndImport}
                   className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md shadow-emerald-950/20"
                 >
-                  Confirmar e Sincronizar Pedidos
+                  Confirmar e Importar {reviewOrders.length} Pedidos
                 </button>
               </div>
             </div>
